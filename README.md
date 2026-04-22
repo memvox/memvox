@@ -1,4 +1,4 @@
 # memvox
 
-![memvox-header](./assets/memvox-header.png)
+![memvox-header](./assets/memvox-header2.png)
 
