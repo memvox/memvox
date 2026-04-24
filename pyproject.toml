@@ -24,6 +24,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "webrtcvad>=2.0",   # used by shim.py only
 ]
 # pip install -e ".[metrics]" to enable otlp / prometheus sinks
 metrics = [
