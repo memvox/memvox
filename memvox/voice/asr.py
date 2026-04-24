@@ -43,28 +43,36 @@ class ASREngine:
             WhisperModel, self._model_name, device=self._device, compute_type=self._compute_type
         )
 
+    async def transcribe(self, segment: SpeechSegment) -> Transcript | None:
+        """Transcribe one segment directly. Returns None if dropped.
+
+        Used by SessionOrchestrator in sequential (Phase 1) mode.
+        """
+        if self._model is None:
+            raise RuntimeError("call initialize() before transcribe()")
+        async with metrics.span("asr.transcribe"):
+            t0 = time.monotonic()
+            result = await asyncio.to_thread(self._transcribe, segment)
+            latency_ms = (time.monotonic() - t0) * 1000
+
+        if result is None:
+            metrics.event(metrics.ASR_DROP)
+            return None
+
+        result.latency_ms = latency_ms
+        return result
+
     async def run(self) -> None:
-        """Consume SpeechSegments until the queue is closed (None sentinel)."""
+        """Queue-based loop — consumes SpeechSegments until None sentinel."""
         if self._model is None:
             raise RuntimeError("call initialize() before run()")
         while True:
             segment = await self._input_q.get()
-            if segment is None:  # shutdown sentinel
+            if segment is None:
                 break
-            await self._process(segment)
-
-    async def _process(self, segment: SpeechSegment) -> None:
-        async with metrics.span("asr.transcribe"):
-            t0 = time.monotonic()
-            transcript = await asyncio.to_thread(self._transcribe, segment)
-            latency_ms = (time.monotonic() - t0) * 1000
-
-        if transcript is None:
-            metrics.event(metrics.ASR_DROP)
-            return
-
-        transcript.latency_ms = latency_ms
-        await self._output_q.put(transcript)
+            transcript = await self.transcribe(segment)
+            if transcript is not None:
+                await self._output_q.put(transcript)
 
     def _transcribe(self, segment: SpeechSegment) -> Transcript | None:
         """Blocking transcription — called via asyncio.to_thread."""
