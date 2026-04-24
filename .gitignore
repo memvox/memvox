@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Rust
+target/
+
+# Compiled PyO3 extension
+memvox/_rust*.so
+memvox/_rust*.pyd
+
+# LanceDB index (rebuilt from Markdown on demand)
+lancedb/
+*.lance/
+
+# Wiki content (user data, not source)
+wiki/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store

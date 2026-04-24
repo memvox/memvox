@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "memvox"
@@ -18,15 +18,18 @@ dependencies = [
     "numpy>=1.26",
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.20",
-    "opentelemetry-exporter-prometheus>=0.41",
-    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+]
+# pip install -e ".[metrics]" to enable otlp / prometheus sinks
+metrics = [
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20",
+    "opentelemetry-exporter-prometheus>=0.40b0",
+    "prometheus-client>=0.20",
 ]
 
 [tool.setuptools.packages.find]
