@@ -1,0 +1,27 @@
+[package]
+name = "memvox-audio"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "memvox-audio"
+path = "src/main.rs"
+
+[dependencies]
+# Audio I/O — mic capture and speaker playback on real-time OS threads
+cpal = "0.15"
+# Resampling — Kokoro 24 kHz → device native rate (typically 48 kHz)
+rubato = "0.16"
+# Silero VAD ONNX inference
+ort = { version = "2", features = ["load-dynamic"] }
+ndarray = "0.16"
+# Async runtime — drives IPC and coordination tasks (not audio threads)
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "io-util", "time", "macros"] }
+# IPC wire format
+bincode = "1"
+serde = { version = "1", features = ["derive"] }
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Error handling
+anyhow = "1"

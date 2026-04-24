@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "memvox"
+version = "0.1.0"
+description = "Low-latency streaming voice agent with persistent LLM wiki memory"
+requires-python = ">=3.11"
+dependencies = [
+    "lancedb>=0.14",
+    "sentence-transformers>=3.0",
+    "openai>=1.0",
+    "faster-whisper>=1.0",
+    "kokoro>=0.9",
+    "sounddevice>=0.4",
+    "pyarrow>=14.0",
+    "numpy>=1.26",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["memvox*"]
+
+# ── Rust extension (Phase 4) ──────────────────────────────────────────────────
+# To activate, switch the build-system above to maturin and run:
+#   maturin develop --manifest-path memvox-rs/Cargo.toml
+# The standalone audio binary is built separately:
+#   cargo build --release --manifest-path memvox-audio/Cargo.toml
+[tool.maturin]
+manifest-path = "memvox-rs/Cargo.toml"
+python-source = "."
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "requires_gpu: marks tests as requiring a GPU",
+    "requires_model: marks tests as requiring a model to be loaded",
+]

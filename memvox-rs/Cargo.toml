@@ -1,0 +1,17 @@
+[package]
+name = "memvox-rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "_rust"
+# cdylib produces the .so/.pyd that Python imports as memvox._rust
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+[profile.release]
+# Optimize for runtime speed; maturin uses this profile by default
+lto = true
+codegen-units = 1

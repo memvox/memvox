@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "memvox-audio",
+    "memvox-rs",
+]
+resolver = "2"
