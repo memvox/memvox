@@ -12,11 +12,11 @@ path = "src/main.rs"
 cpal = "0.15"
 # Resampling — Kokoro 24 kHz → device native rate (typically 48 kHz)
 rubato = "0.16"
-# Silero VAD ONNX inference
-ort = { version = "2", features = ["load-dynamic"] }
-ndarray = "0.16"
+# Silero VAD ONNX inference — uncomment when swapping out energy VAD in ingress.rs
+# ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
+# ndarray = "0.16"
 # Async runtime — drives IPC and coordination tasks (not audio threads)
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "io-util", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "io-util", "time", "macros", "signal"] }
 # IPC wire format
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
