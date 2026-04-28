@@ -109,13 +109,18 @@ class LLMEngine:
         ttft_recorded = False
         parser = _ThinkingParser()
 
-        extra_body = {"enable_thinking": True} if request.thinking_enabled else {}
+        # Always pass the flag explicitly. Qwen3 defaults to thinking ON when
+        # the field is absent — that produces only <think> tokens for short
+        # prompts, which our parser classifies as thinking and drops, leaving
+        # no content for TTS. Sending `false` opts out of thinking entirely.
+        extra_body = {"chat_template_kwargs": {"enable_thinking": request.thinking_enabled}}
 
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
             stream=True,
-            extra_body=extra_body or None,
+            extra_body=extra_body,
+            max_tokens=120,    # hard cap; keeps replies short for live conversation
         )
 
         try:

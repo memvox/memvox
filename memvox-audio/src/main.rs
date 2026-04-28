@@ -21,6 +21,7 @@ mod ingress;
 mod ipc;
 
 use anyhow::{Context, Result};
+use cpal::traits::{DeviceTrait, HostTrait};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -33,6 +34,15 @@ use crate::ipc::{InboundMsg, OutboundMsg};
 const DEFAULT_OUT_SOCK: &str = "/tmp/memvox-audio-out.sock";
 const DEFAULT_IN_SOCK:  &str = "/tmp/memvox-audio-in.sock";
 
+#[derive(Clone, Default)]
+struct Args {
+    out_sock: String,
+    in_sock:  String,
+    input_device:  Option<String>,
+    output_device: Option<String>,
+    list_devices:  bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -41,19 +51,28 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let (out_sock, in_sock) = parse_args();
+    let args = parse_args();
+
+    // Always print the device inventory at startup so the user can pick names.
+    list_devices();
+    if args.list_devices {
+        return Ok(());
+    }
+
     info!("memvox-audio starting");
-    info!("  outbound socket: {}", out_sock);
-    info!("  inbound socket : {}", in_sock);
+    info!("  outbound socket: {}", args.out_sock);
+    info!("  inbound socket : {}", args.in_sock);
+    if let Some(d) = &args.input_device  { info!("  input device  : substring '{}'", d); }
+    if let Some(d) = &args.output_device { info!("  output device : substring '{}'", d); }
 
     // Remove stale socket files from a previous run (bind() fails if the path exists).
-    let _ = std::fs::remove_file(&out_sock);
-    let _ = std::fs::remove_file(&in_sock);
+    let _ = std::fs::remove_file(&args.out_sock);
+    let _ = std::fs::remove_file(&args.in_sock);
 
-    let out_listener = UnixListener::bind(&out_sock)
-        .with_context(|| format!("bind {}", out_sock))?;
-    let in_listener = UnixListener::bind(&in_sock)
-        .with_context(|| format!("bind {}", in_sock))?;
+    let out_listener = UnixListener::bind(&args.out_sock)
+        .with_context(|| format!("bind {}", args.out_sock))?;
+    let in_listener = UnixListener::bind(&args.in_sock)
+        .with_context(|| format!("bind {}", args.in_sock))?;
 
     // Tokio mpsc channels couple the audio tasks to the socket-forwarding tasks.
     // 64 slots is plenty: ingress emits ≤ ~10 events/sec, egress receives bursts.
@@ -63,8 +82,8 @@ async fn main() -> Result<()> {
     let barge_in = BargeInSignal::new();
 
     // Spawn each long-lived task. They run concurrently on the tokio runtime.
-    tokio::spawn(run_ingress(barge_in.clone(), out_tx));
-    tokio::spawn(run_egress(barge_in.clone(), in_rx));
+    tokio::spawn(run_ingress(barge_in.clone(), out_tx, args.input_device.clone()));
+    tokio::spawn(run_egress(barge_in.clone(), in_rx, args.output_device.clone()));
     tokio::spawn(outbound_task(out_listener, out_rx));
     tokio::spawn(inbound_task(in_listener, in_tx));
 
@@ -76,16 +95,24 @@ async fn main() -> Result<()> {
 
 // ── Audio task wrappers ───────────────────────────────────────────────────────
 
-async fn run_ingress(bi: BargeInSignal, tx: mpsc::Sender<OutboundMsg>) {
+async fn run_ingress(
+    bi: BargeInSignal,
+    tx: mpsc::Sender<OutboundMsg>,
+    device_match: Option<String>,
+) {
     let ingress = AudioIngress::new(bi);
-    if let Err(e) = ingress.run(tx).await {
+    if let Err(e) = ingress.run(tx, device_match).await {
         warn!("ingress task ended with error: {:#}", e);
     }
 }
 
-async fn run_egress(bi: BargeInSignal, rx: mpsc::Receiver<InboundMsg>) {
+async fn run_egress(
+    bi: BargeInSignal,
+    rx: mpsc::Receiver<InboundMsg>,
+    device_match: Option<String>,
+) {
     let egress = AudioEgress::new(bi);
-    if let Err(e) = egress.run(rx).await {
+    if let Err(e) = egress.run(rx, device_match).await {
         warn!("egress task ended with error: {:#}", e);
     }
 }
@@ -140,17 +167,59 @@ async fn inbound_task(
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
-fn parse_args() -> (String, String) {
-    let args: Vec<String> = std::env::args().collect();
-    let get = |flag: &str, default: &str| -> String {
-        args.iter()
+fn parse_args() -> Args {
+    let argv: Vec<String> = std::env::args().collect();
+
+    let get = |flag: &str| -> Option<String> {
+        argv.iter()
             .position(|a| a == flag)
-            .and_then(|i| args.get(i + 1))
+            .and_then(|i| argv.get(i + 1))
             .cloned()
-            .unwrap_or_else(|| default.to_string())
     };
-    (
-        get("--out-sock", DEFAULT_OUT_SOCK),
-        get("--in-sock",  DEFAULT_IN_SOCK),
-    )
+
+    Args {
+        out_sock:      get("--out-sock").unwrap_or_else(|| DEFAULT_OUT_SOCK.to_string()),
+        in_sock:       get("--in-sock").unwrap_or_else(|| DEFAULT_IN_SOCK.to_string()),
+        input_device:  get("--input-device"),
+        output_device: get("--output-device"),
+        list_devices:  argv.iter().any(|a| a == "--list-devices"),
+    }
+}
+
+/// Print every cpal-visible audio device. Used at startup so the user can
+/// see what `--input-device` / `--output-device` substring matches against.
+fn list_devices() {
+    let host = cpal::default_host();
+    println!("──── audio devices (cpal host: {}) ────", host.id().name());
+
+    match host.input_devices() {
+        Ok(devs) => {
+            println!("  inputs:");
+            for d in devs {
+                let name = d.name().unwrap_or_else(|_| "<unnamed>".into());
+                let cfg = d.default_input_config()
+                    .map(|c| format!("{} Hz, {} ch, {:?}",
+                        c.sample_rate().0, c.channels(), c.sample_format()))
+                    .unwrap_or_else(|_| "no default config".into());
+                println!("    • {}   ({})", name, cfg);
+            }
+        }
+        Err(e) => println!("  inputs: error: {}", e),
+    }
+
+    match host.output_devices() {
+        Ok(devs) => {
+            println!("  outputs:");
+            for d in devs {
+                let name = d.name().unwrap_or_else(|_| "<unnamed>".into());
+                let cfg = d.default_output_config()
+                    .map(|c| format!("{} Hz, {} ch, {:?}",
+                        c.sample_rate().0, c.channels(), c.sample_format()))
+                    .unwrap_or_else(|_| "no default config".into());
+                println!("    • {}   ({})", name, cfg);
+            }
+        }
+        Err(e) => println!("  outputs: error: {}", e),
+    }
+    println!("───────────────────────────────────────");
 }

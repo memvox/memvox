@@ -50,6 +50,7 @@ impl AudioIngress {
     pub async fn run(
         self,
         out_tx: mpsc::Sender<OutboundMsg>,
+        device_match: Option<String>,
     ) -> Result<()> {
         // Stream creation lives in a non-async helper because cpal::Stream is
         // `!Send` (it holds raw ALSA pointers). Building the stream here would
@@ -57,7 +58,7 @@ impl AudioIngress {
         // because rustc's drop-tracking analysis is conservative across
         // `await` points. Splitting the sync setup from the async loop sides-
         // tep the issue cleanly.
-        let mut sample_rx = open_input_stream()?;
+        let mut sample_rx = open_input_stream(device_match.as_deref())?;
 
         // ── State machine state ─────────────────────────────────────────────
         let mut frame_buf: Vec<f32> = Vec::with_capacity(FRAME_SAMPLES);
@@ -152,13 +153,19 @@ impl AudioIngress {
 
 // ── cpal stream setup (sync — keeps `!Send` Stream out of the async future) ─
 
-fn open_input_stream() -> Result<mpsc::UnboundedReceiver<Vec<f32>>> {
+fn open_input_stream(device_match: Option<&str>) -> Result<mpsc::UnboundedReceiver<Vec<f32>>> {
     let (sample_tx, sample_rx) = mpsc::unbounded_channel::<Vec<f32>>();
 
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .context("no default input device")?;
+    let device = match device_match {
+        Some(needle) => host
+            .input_devices()?
+            .find(|d| d.name().map(|n| n.to_lowercase().contains(&needle.to_lowercase())).unwrap_or(false))
+            .with_context(|| format!("no input device whose name contains '{}'", needle))?,
+        None => host
+            .default_input_device()
+            .context("no default input device")?,
+    };
     info!("ingress: input device = {}", device.name()?);
 
     let config = StreamConfig {

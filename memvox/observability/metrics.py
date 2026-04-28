@@ -34,6 +34,7 @@ ASR_DROP        = "asr.drop"
 TTS_FIRST_CHUNK = "tts.first_chunk"
 LLM_TTFT        = "llm.ttft"
 WIKI_QUERY      = "wiki.query"
+MOUTH_TO_EAR    = "mouth_to_ear"   # primary user-facing latency: end-of-utterance → first audio out
 
 # ── Records (MemorySink inspection surface) ───────────────────────────────────
 
@@ -201,6 +202,42 @@ async def span(name: str, **attrs: Any):
 
 def event(name: str, **attrs: Any) -> None:
     _active.event(name, **attrs)
+
+
+def summary() -> str | None:
+    """Format a table of avg + p95 per metric from the active MemorySink.
+
+    Returns None if the active sink isn't a MemorySink (e.g. OTLP/Prometheus
+    in production), or if no events have been recorded.
+    """
+    sink = _active._sink
+    if not isinstance(sink, MemorySink):
+        return None
+
+    from collections import defaultdict
+    events: dict[str, list[float]] = defaultdict(list)
+    for e in sink.events:
+        if e.latency_ms is not None:
+            events[e.name].append(e.latency_ms)
+    spans: dict[str, list[float]] = defaultdict(list)
+    for s in sink.spans:
+        spans[s.name].append(s.duration_ms)
+
+    if not events and not spans:
+        return None
+
+    def _row(name: str, values: list[float]) -> str:
+        n = len(values)
+        avg = sum(values) / n
+        p95 = sorted(values)[min(int(n * 0.95), n - 1)]
+        return f"  {name:28s}  n={n:3d}  avg={avg:7.1f} ms  p95={p95:7.1f} ms"
+
+    lines = ["[metrics] Session summary:"]
+    for name in sorted(events.keys()):
+        lines.append(_row(name, events[name]))
+    for name in sorted(spans.keys()):
+        lines.append(_row(f"{name} (span)", spans[name]))
+    return "\n".join(lines)
 
 
 @contextmanager

@@ -1,4 +1,5 @@
 import asyncio
+import time
 import traceback
 import uuid
 from typing import AsyncIterator
@@ -90,6 +91,11 @@ class SessionOrchestrator:
 
         metrics.event(metrics.SESSION_END, session_id=self._session_id)
 
+        # Print latency summary if the active sink is the in-memory one.
+        report = metrics.summary()
+        if report:
+            print(report)
+
         # Fire WikiCompiler in background — does not block session teardown.
         # TODO Phase 3: wire in WikiCompiler
         # existing_slugs = [a.slug for a in await self._wiki.list_articles()]
@@ -112,6 +118,12 @@ class SessionOrchestrator:
     # ── Turn pipeline ─────────────────────────────────────────────────────────
 
     async def _process_segment(self, segment: SpeechSegment) -> None:
+        # mouth_to_ear stopwatch starts at end-of-utterance — i.e., the moment
+        # the VAD has decided the user finished speaking and handed us the
+        # SpeechSegment. We stop it when the first non-final AudioChunk leaves
+        # egress (first audio that the user could hear).
+        t_segment_received = time.monotonic()
+
         transcript = await self._asr.transcribe(segment)
         if transcript is None:
             return
@@ -150,9 +162,17 @@ class SessionOrchestrator:
                 yield part
 
         # TTS synthesis → egress
+        first_audio_recorded = False
         async for audio_chunk in self._tts.synthesize(_sequential_tokens()):
             if not audio_chunk.is_final:
                 await self._egress.send(audio_chunk)
+                if not first_audio_recorded:
+                    first_audio_recorded = True
+                    metrics.event(
+                        metrics.MOUTH_TO_EAR,
+                        latency_ms=(time.monotonic() - t_segment_received) * 1000,
+                        turn_id=turn_id,
+                    )
 
         # Record turn in history
         assistant_text = "".join(content_parts)

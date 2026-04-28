@@ -287,3 +287,31 @@ class TestMetrics:
         with metrics.override() as sink:
             await orch._process_segment(_segment())
         assert any(s.name == metrics.WIKI_QUERY for s in sink.spans)
+
+    async def test_mouth_to_ear_emitted_once_per_turn(self):
+        orch, _, _, _, _, _, _ = _make_orchestrator()
+        with metrics.override() as sink:
+            await orch._process_segment(_segment())
+        m2e_events = [e for e in sink.events if e.name == metrics.MOUTH_TO_EAR]
+        assert len(m2e_events) == 1
+        assert m2e_events[0].latency_ms is not None
+        assert m2e_events[0].latency_ms >= 0
+        assert "turn_id" in m2e_events[0].attrs
+
+    async def test_mouth_to_ear_not_emitted_on_asr_drop(self):
+        orch, asr, _, _, _, _, _ = _make_orchestrator()
+        asr.transcribe = AsyncMock(return_value=None)
+        with metrics.override() as sink:
+            await orch._process_segment(_segment())
+        assert not any(e.name == metrics.MOUTH_TO_EAR for e in sink.events)
+
+    async def test_mouth_to_ear_not_emitted_when_no_audio_chunks(self):
+        orch, _, _, tts, _, _, _ = _make_orchestrator()
+        # TTS yields only the final sentinel — no playable audio went out
+        async def _final_only(_):
+            yield AudioChunk(pcm_bytes=b"", sample_rate=24_000, is_final=True,
+                             sentence_text="", chunk_latency_ms=0.0)
+        tts.synthesize = MagicMock(side_effect=_final_only)
+        with metrics.override() as sink:
+            await orch._process_segment(_segment())
+        assert not any(e.name == metrics.MOUTH_TO_EAR for e in sink.events)

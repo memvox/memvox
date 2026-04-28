@@ -32,12 +32,16 @@ impl AudioEgress {
         Self { barge_in }
     }
 
-    pub async fn run(self, mut rx: mpsc::Receiver<InboundMsg>) -> Result<()> {
+    pub async fn run(
+        self,
+        mut rx: mpsc::Receiver<InboundMsg>,
+        device_match: Option<String>,
+    ) -> Result<()> {
         // Stream creation lives in a non-async helper for the same reason as
         // ingress: cpal::Stream is `!Send` and rustc's drop-tracking poisons
         // the future even after `std::mem::forget`. The helper returns the
         // device rate and the shared playback buffer.
-        let (device_rate, buffer) = open_output_stream(self.barge_in.clone())?;
+        let (device_rate, buffer) = open_output_stream(self.barge_in.clone(), device_match.as_deref())?;
 
         // ── Resampler state (built lazily, rebuilt if input rate changes) ───
         let mut resampler: Option<FftFixedIn<f32>> = None;
@@ -48,6 +52,10 @@ impl AudioEgress {
         while let Some(msg) = rx.recv().await {
             match msg {
                 InboundMsg::AudioChunk(chunk) => {
+                    debug!(
+                        "egress: AudioChunk in  ({} samples @ {} Hz, is_final={})",
+                        chunk.pcm.len(), chunk.sample_rate, chunk.is_final,
+                    );
                     handle_audio_chunk(
                         chunk,
                         device_rate,
@@ -57,6 +65,8 @@ impl AudioEgress {
                         &buffer,
                         &self.barge_in,
                     )?;
+                    let depth = buffer.lock().map(|b| b.len()).unwrap_or(0);
+                    debug!("egress: playback buffer depth = {} samples", depth);
                 }
                 InboundMsg::CancelPlayback => {
                     debug!("CancelPlayback ◼");
@@ -77,11 +87,18 @@ impl AudioEgress {
 
 fn open_output_stream(
     barge_in: BargeInSignal,
+    device_match: Option<&str>,
 ) -> Result<(u32, Arc<Mutex<VecDeque<f32>>>)> {
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .context("no default output device")?;
+    let device = match device_match {
+        Some(needle) => host
+            .output_devices()?
+            .find(|d| d.name().map(|n| n.to_lowercase().contains(&needle.to_lowercase())).unwrap_or(false))
+            .with_context(|| format!("no output device whose name contains '{}'", needle))?,
+        None => host
+            .default_output_device()
+            .context("no default output device")?,
+    };
     let supported = device.default_output_config()?;
     let device_rate = supported.sample_rate().0;
     let device_channels = supported.channels();
