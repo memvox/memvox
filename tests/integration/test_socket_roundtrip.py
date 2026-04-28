@@ -124,7 +124,7 @@ def _build_orchestrator(out_sock: str, in_sock: str):
     config = SessionConfig(
         system_prompt="test",
         language="ko",
-        voice="af_heart",
+        voice="Ana Florence",
     )
 
     # Real socket clients — these are what we want to exercise

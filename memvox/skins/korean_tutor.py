@@ -18,7 +18,15 @@ def korean_tutor() -> SessionConfig:
     return SessionConfig(
         system_prompt=_SYSTEM_PROMPT,
         language="ko",
-        voice="af_heart",         # Kokoro voice; swap for a Korean voice when available
+        # ── TTS ──────────────────────────────────────────────────────────────
+        # Coqui XTTS-v2 supports Korean and English with a 24 kHz output rate.
+        voice="Ana Florence",
+        tts_lang_code="ko",
+        # ── Latency knobs ────────────────────────────────────────────────────
         thinking_enabled=False,    # adds 300–2000 ms TTFA — too slow for live conversation
         history_max_turns=20,
+        # ── Models ───────────────────────────────────────────────────────────
+        # Fix llm_model to whatever `curl http://localhost:8000/v1/models` reports.
+        llm_model="Qwen/Qwen3-8b",
+        asr_model="large-v3",      # Whisper large-v3 for best Korean accuracy
     )

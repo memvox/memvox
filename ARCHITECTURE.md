@@ -49,7 +49,7 @@ The wiki layer compounds knowledge across sessions. After every conversation a b
 │                  SessionOrchestrator  (Python)          │            │
 │                                                                     │
 │  ingress shim ──► ASREngine ──► LLMEngine ──► TTSEngine ──► egress shim
-│                  faster-      vLLM HTTP     Kokoro +      Unix     │
+│                  faster-      vLLM HTTP     XTTS-v2 +     Unix     │
 │                  whisper      stream        SentenceAcc   socket   │
 │                       │            │                               │
 │                  WikiStore.search()│                               │
@@ -204,7 +204,7 @@ Input:  AsyncIterator[str]           # token-by-token text from LLMEngine
 Output: AsyncGenerator[AudioChunk]
   AudioChunk(
       pcm_bytes: bytes,              # 24kHz float32 little-endian
-      sample_rate: int,              # always 24000 for Kokoro
+      sample_rate: int,              # always 24000 for XTTS-v2
       is_final: bool,
       sentence_text: str,
       chunk_latency_ms: float
@@ -221,18 +221,18 @@ SentenceAccumulator (Rust/PyO3)
     │  push(token) → None or sentence str
     │
     ▼  on sentence ready
-asyncio.to_thread(KPipeline(sentence))   ← non-blocking: Kokoro runs in thread pool
+asyncio.to_thread(TTS.tts(sentence))      ← non-blocking: XTTS runs in thread pool
     │
-    ▼  yields (graphemes, phonemes, audio_np) tuples
-AudioChunk emitted per Kokoro chunk      ← no full-sentence buffering
+    ▼  yields 24 kHz float32 audio
+AudioChunk emitted per model chunk
 ```
 
 **SentenceAccumulator** is a PyO3 Rust extension (`memvox._rust.SentenceAccumulator`). It detects sentence boundaries from punctuation (`. ! ?`) or flushes after 30 tokens. It is called on every LLM token — potentially 100+ times per turn — so the cost of a Python loop here is measurable. The Rust FFI call costs ~0.
 
-**Key library: Kokoro-82M**
-82M parameter TTS model. Smallest model with genuine multilingual Korean support and acceptable prosody. First audio chunk typically available within 100–200ms of sentence start on GPU. For English-only use, CSM-1B (Sesame) produces more natural prosody at the cost of ~200ms additional first-chunk latency.
+**Key library: Coqui XTTS-v2**
+Multilingual TTS model with English (`en`) and Korean (`ko`) support, 24 kHz output, and optional voice cloning from speaker WAV references.
 
-`asyncio.to_thread` keeps the event loop free while Kokoro synthesizes — this is what allows LLM token generation and TTS synthesis to run concurrently.
+`asyncio.to_thread` keeps the event loop free while XTTS synthesizes — this is what allows LLM token generation and TTS synthesis to run concurrently.
 
 ---
 
@@ -256,7 +256,7 @@ Outbound (binary → Python):
 
 **Key libraries**
 - `cpal` — playback on a dedicated real-time thread, same as ingress.
-- `rubato` — purpose-built Rust resampling library. Converts Kokoro's 24kHz output to device native rate (typically 48kHz). Reinitialises automatically if `sample_rate` changes between chunks, enabling seamless TTS model swaps. Eliminates scipy from the playback hot path.
+- `rubato` — purpose-built Rust resampling library. Converts TTS 24kHz output to device native rate (typically 48kHz). Reinitialises automatically if `sample_rate` changes between chunks, enabling seamless TTS model swaps. Eliminates scipy from the playback hot path.
 
 **Barge-in cancel path**
 
@@ -497,7 +497,7 @@ User stops speaking
         │
         │  ~50–70ms   First sentence generated (~10 tokens at 150 tok/s)
         ▼
-  First sentence ready → Kokoro starts
+  First sentence ready → XTTS starts
         │
         │  ~100–150ms  TTS first chunk
         ▼
@@ -547,10 +547,10 @@ LLMEngine.generate()
   token 2 ─► token_q ────────► → None (accumulating)
   ...
   token 12 ► token_q ────────► → "Hello, how are you?"
-                                 asyncio.to_thread(Kokoro)
+                                 asyncio.to_thread(XTTS)
                                    chunk 1 ─► audio_q ──► Unix socket write
                                    chunk 2 ─► audio_q ──► Unix socket write
-  token 13 ► token_q          (Kokoro still running ↑)   (egress playing ↑)
+  token 13 ► token_q          (XTTS still running ↑)     (egress playing ↑)
 ```
 
 Queues use `maxsize=4` to create backpressure — a fast LLM cannot outrun a slow TTS unboundedly. Memory usage stays bounded.
@@ -641,7 +641,7 @@ The floor is VAD onset detection (~200ms). Audio stop is sub-millisecond once th
 │     latency to first token: ~80–150ms on RTX 5090                  │
 │                                                                     │
 │  5. TTS (overlapping with step 4)                                   │
-│     token stream → SentenceAccumulator → Kokoro → AudioChunk stream│
+│     token stream → SentenceAccumulator → XTTS-v2 → AudioChunk stream│
 │     first audio: ~150–300ms after first sentence complete           │
 │                                                                     │
 │  6. Playback (overlapping with steps 4+5)                           │
@@ -690,7 +690,7 @@ memvox/                          ← repo root
     │   ├── ingress.py           ←   thin asyncio socket client for memvox-audio outbound
     │   ├── asr.py               ←   ASREngine (faster-whisper)
     │   ├── llm.py               ←   LLMEngine (vLLM HTTP, openai client)
-    │   ├── tts.py               ←   TTSEngine (Kokoro + SentenceAccumulator)
+    │   ├── tts.py               ←   TTSEngine (XTTS-v2 + SentenceAccumulator)
     │   └── egress.py            ←   thin asyncio socket client for memvox-audio inbound
     ├── session/
     │   ├── types.py             ←   SessionConfig

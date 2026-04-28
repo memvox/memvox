@@ -58,7 +58,7 @@ async def _run(args: argparse.Namespace) -> None:
 
     asr  = ASREngine(asr_in, asr_out, model_name=config.asr_model)
     llm  = LLMEngine(base_url=config.llm_base_url, model=config.llm_model)
-    tts  = TTSEngine(voice=config.voice, lang_code=config.language[0])  # "ko" → "k"
+    tts  = TTSEngine(voice=config.voice, lang_code=config.tts_lang_code)
     wiki = WikiStore(wiki_dir=wiki_dir, db_path=db_path)
     await wiki.initialize()
 

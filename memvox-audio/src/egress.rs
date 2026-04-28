@@ -1,6 +1,6 @@
 //! Speaker playback + rubato resampling + barge-in cancel.
 //!
-//! Receives `AudioChunk` PCM from Python (typically Kokoro at 24 kHz f32) and
+//! Receives `AudioChunk` PCM from Python (typically XTTS at 24 kHz f32) and
 //! `CancelPlayback` control messages.  Resamples to the device's native rate
 //! using rubato's FFT resampler, then hands samples to a cpal output stream.
 //!

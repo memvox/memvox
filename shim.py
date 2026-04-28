@@ -53,6 +53,8 @@ import sys
 import numpy as np
 import sounddevice as sd
 import webrtcvad
+import math
+from scipy.signal import resample_poly
 
 
 # ── Socket paths ──────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ INBOUND_SOCK_DEFAULT  = "/tmp/memvox-audio-in.sock"   # orchestrator writes, shi
 # ── Microphone / VAD configuration ───────────────────────────────────────────
 
 MIC_SAMPLE_RATE   = 16_000     # Hz — Whisper and Silero both expect 16 kHz mono
+PB_SAMPLE_RATE    = 48_000
 MIC_CHANNELS      = 1
 VAD_FRAME_MS      = 30         # webrtcvad only accepts 10, 20, or 30 ms frames
 VAD_FRAME_SAMPLES = MIC_SAMPLE_RATE * VAD_FRAME_MS // 1000   # 480 samples = 960 bytes
@@ -215,6 +218,7 @@ def _mic_thread(
     loop: asyncio.AbstractEventLoop,
     out_q: asyncio.Queue,
     stop_event: threading.Event,
+    input_device: int | str | None = None,
 ) -> None:
     """
     Runs as a daemon thread.  Opens the microphone via sounddevice, feeds
@@ -235,9 +239,12 @@ def _mic_thread(
         dtype="int16",
         blocksize=VAD_FRAME_SAMPLES,  # guarantees exactly one VAD frame per callback
         callback=_callback,
+        device=input_device,
     )
 
-    print("[shim] Microphone open — listening for speech")
+    dev_label = sd.query_devices(input_device, "input")["name"] if input_device is not None \
+        else "default"
+    print(f"[shim] Microphone open ({dev_label}) — listening for speech")
     stream.start()
 
     try:
@@ -283,19 +290,38 @@ def _mic_thread(
 
 # ── Playback thread ───────────────────────────────────────────────────────────
 
-def _playback_thread(play_q: queue.Queue) -> None:
+def _playback_thread(play_q: queue.Queue, output_device: int | str | None = None) -> None:
     """
     Runs as a daemon thread.  Plays float32 PCM chunks from `play_q`
     sequentially via sounddevice.  sd.stop() (called from the async inbound
     handler on CancelPlayback) unblocks sd.wait() immediately.
     """
+    if output_device is not None:
+        sd.default.device = (sd.default.device[0], output_device)
+        dev_label = sd.query_devices(output_device, "output")["name"]
+        print(f"[shim] Playback device: {dev_label}")
     while True:
         item = play_q.get()
         if item is None:          # shutdown sentinel
             break
+        # pcm, sr = item
+        # sd.play(pcm, samplerate=sr, device=output_device)
+        # sd.wait()                 # blocks until playback finishes or sd.stop() is called
+
         pcm, sr = item
-        sd.play(pcm, samplerate=sr)
-        sd.wait()                 # blocks until playback finishes or sd.stop() is called
+        pcm = np.asarray(pcm, dtype=np.float32)
+
+        if int(sr) != PB_SAMPLE_RATE:
+            g = math.gcd(int(sr), PB_SAMPLE_RATE)
+            pcm = resample_poly(
+                pcm,
+                PB_SAMPLE_RATE // g,
+                int(sr) // g,
+            ).astype(np.float32)
+            sr = PB_SAMPLE_RATE
+
+        sd.play(pcm, samplerate=sr, device=output_device)
+        sd.wait()
 
 
 # ── Async socket handlers ─────────────────────────────────────────────────────
@@ -353,7 +379,10 @@ async def _handle_inbound(
             if tag == _TAG_AUDIO_CHUNK:
                 pcm, sr, is_final = _decode_audio_chunk(rest)
                 if not is_final and len(pcm) > 0:
+                    print(f"[shim] ◀ AudioChunk  {len(pcm)} samples @ {sr} Hz")
                     play_q.put((pcm, sr))
+                elif is_final:
+                    print("[shim] ◀ AudioChunk (final sentinel)")
 
             elif tag == _TAG_CANCEL:
                 print("[shim] ◼ CancelPlayback — stopping audio")
@@ -385,7 +414,12 @@ async def _handle_inbound(
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-async def main(outbound_sock: str, inbound_sock: str) -> None:
+async def main(
+    outbound_sock: str,
+    inbound_sock: str,
+    input_device: int | str | None = None,
+    output_device: int | str | None = None,
+) -> None:
     loop = asyncio.get_running_loop()
 
     # Queues that cross the thread / async boundary
@@ -397,14 +431,14 @@ async def main(outbound_sock: str, inbound_sock: str) -> None:
 
     threading.Thread(
         target=_mic_thread,
-        args=(loop, out_q, stop_event),
+        args=(loop, out_q, stop_event, input_device),
         daemon=True,
         name="shim-mic",
     ).start()
 
     threading.Thread(
         target=_playback_thread,
-        args=(play_q,),
+        args=(play_q, output_device),
         daemon=True,
         name="shim-playback",
     ).start()
@@ -459,9 +493,34 @@ if __name__ == "__main__":
         default=INBOUND_SOCK_DEFAULT,
         help=f"Inbound Unix socket path (default: {INBOUND_SOCK_DEFAULT})",
     )
+    parser.add_argument(
+        "--input-device",
+        default=None,
+        help="Input device — integer index or substring of name (e.g. 'Jabra'). "
+             "Default: system default. Run `python -c 'import sounddevice as sd; "
+             "print(sd.query_devices())'` to list devices.",
+    )
+    parser.add_argument(
+        "--output-device",
+        default=None,
+        help="Output device — integer index or substring of name. Default: system default.",
+    )
     args = parser.parse_args()
 
+    def _resolve_device(arg):
+        if arg is None:
+            return None
+        try:
+            return int(arg)         # integer index
+        except ValueError:
+            return arg              # name substring — sounddevice does fuzzy match
+
     try:
-        asyncio.run(main(args.out_sock, args.in_sock))
+        asyncio.run(main(
+            args.out_sock,
+            args.in_sock,
+            input_device=_resolve_device(args.input_device),
+            output_device=_resolve_device(args.output_device),
+        ))
     except KeyboardInterrupt:
         print("\n[shim] Stopped.")

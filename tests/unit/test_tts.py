@@ -16,7 +16,7 @@ def _pcm(seconds: float = 0.1) -> np.ndarray:
 
 
 def _pipeline(*sentences_audio: list[np.ndarray]):
-    """Mock KPipeline: maps call index to a list of audio arrays to yield."""
+    """Mock streaming pipeline: maps call index to a list of audio arrays."""
     calls = iter(sentences_audio)
 
     def pipeline(text, voice=None, **_):
@@ -25,6 +25,16 @@ def _pipeline(*sentences_audio: list[np.ndarray]):
             yield None, None, audio
 
     return pipeline
+
+
+class _TTSApiPipeline:
+    def __init__(self, audio: np.ndarray | None = None) -> None:
+        self.audio = audio if audio is not None else _pcm()
+        self.calls = []
+
+    def tts(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.audio
 
 
 async def _tokens(*words: str) -> list[str]:
@@ -132,7 +142,7 @@ class TestTTSEngineSynthesize:
         chunks = await _collect(engine, "First.", " Second.")
         assert len(_content(chunks)) >= 2
 
-    async def test_multiple_kokoro_chunks_per_sentence(self):
+    async def test_multiple_pipeline_chunks_per_sentence(self):
         engine = self._engine([_pcm(0.05), _pcm(0.05), _pcm(0.05)])
         chunks = await _collect(engine, "Long sentence.")
         assert len(_content(chunks)) == 3
@@ -150,6 +160,29 @@ class TestTTSEngineSynthesize:
         with pytest.raises(RuntimeError, match="initialize"):
             async for _ in engine.synthesize(_tokens("hi")):
                 pass
+
+    async def test_passes_xtts_language_and_speaker(self):
+        pipeline = _TTSApiPipeline()
+        engine = TTSEngine(voice="Ana Florence", lang_code="ko", _pipeline=pipeline)
+        await _collect(engine, "안녕하세요.")
+        assert pipeline.calls == [
+            {
+                "text": "안녕하세요.",
+                "language": "ko",
+                "split_sentences": False,
+                "speaker": "Ana Florence",
+            }
+        ]
+
+    async def test_uses_english_for_plain_english_in_korean_session(self):
+        pipeline = _TTSApiPipeline()
+        engine = TTSEngine(voice="Ana Florence", lang_code="ko", _pipeline=pipeline)
+        await _collect(engine, "Try again.")
+        assert pipeline.calls[0]["language"] == "en"
+
+    def test_rejects_non_xtts_language_code(self):
+        with pytest.raises(ValueError, match="unsupported XTTS language code"):
+            TTSEngine(lang_code="a")
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────

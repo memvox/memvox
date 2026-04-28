@@ -44,7 +44,7 @@ pub enum InboundMsg {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AudioChunk {
-    /// PCM 24 kHz float32, little-endian (Kokoro output rate, resampled by egress)
+    /// PCM 24 kHz float32, little-endian (TTS output rate, resampled by egress)
     pub pcm: Vec<f32>,
     pub sample_rate: u32,
     pub is_final: bool,

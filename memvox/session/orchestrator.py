@@ -1,6 +1,17 @@
 import asyncio
+import traceback
 import uuid
 from typing import AsyncIterator
+
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Surface exceptions from the background _run task; otherwise they vanish."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        print(f"[orchestrator] _run task crashed: {exc!r}")
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
 
 from memvox.observability import metrics
 from memvox.session.types import SessionConfig
@@ -63,6 +74,7 @@ class SessionOrchestrator:
         metrics.event(metrics.SESSION_START, session_id=self._session_id)
 
         self._task = asyncio.create_task(self._run())
+        self._task.add_done_callback(_log_task_exception)
 
     async def stop(self) -> None:
         self._stop_event.set()

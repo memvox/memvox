@@ -9,10 +9,11 @@ description = "Low-latency streaming voice agent with persistent LLM wiki memory
 requires-python = ">=3.11"
 dependencies = [
     "lancedb>=0.14",
-    "sentence-transformers>=3.0",
+    "sentence-transformers>=3.0,<4",
     "openai>=1.0",
     "faster-whisper>=1.0",
-    "kokoro>=0.9",
+    "coqui-tts[codec,ko]>=0.27",
+    "transformers>=4.57,<5",
     "sounddevice>=0.4",
     "pyarrow>=14.0",
     "numpy>=1.26",

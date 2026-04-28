@@ -13,7 +13,11 @@ from memvox.voice.types import AudioChunk, SpeechSegment, SpeechStarted, Transcr
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _config(**overrides) -> SessionConfig:
-    defaults = dict(system_prompt="You are a Korean tutor.", language="ko", voice="af_heart")
+    defaults = dict(
+        system_prompt="You are a Korean tutor.",
+        language="ko",
+        voice="Ana Florence",
+    )
     defaults.update(overrides)
     return SessionConfig(**defaults)
 

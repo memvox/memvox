@@ -87,6 +87,7 @@ class WikiStore:
     async def initialize(self) -> None:
         from sentence_transformers import SentenceTransformer
         import lancedb
+        from lancedb.index import FTS
 
         self._model = await asyncio.to_thread(
             SentenceTransformer, "all-MiniLM-L6-v2"
@@ -98,7 +99,7 @@ class WikiStore:
             self._table = await self._db.open_table("chunks")
         else:
             self._table = await self._db.create_table("chunks", schema=_SCHEMA)
-            await self._table.create_fts_index("chunk_text", replace=True)
+            await self._table.create_index("chunk_text", config=FTS(), replace=True)
 
     # ── write ──────────────────────────────────────────────────────────────────
 
@@ -162,20 +163,14 @@ class WikiStore:
             self._model.encode, [query], normalize_embeddings=True
         )
 
-        # Vector search
-        vec_rows = (
-            await self._table.search(query_emb[0].tolist())
-            .limit(k)
-            .to_list()
-        )
+        # Vector search — async lancedb: await search() first, then chain.
+        vec_query = await self._table.search(query_emb[0].tolist())
+        vec_rows = await vec_query.limit(k).to_list()
 
         # Full-text search
         try:
-            fts_rows = (
-                await self._table.search(query, query_type="fts")
-                .limit(k)
-                .to_list()
-            )
+            fts_query = await self._table.search(query, query_type="fts")
+            fts_rows = await fts_query.limit(k).to_list()
         except Exception:
             fts_rows = []
 

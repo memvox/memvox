@@ -4,8 +4,9 @@ from dataclasses import dataclass, field
 @dataclass
 class SessionConfig:
     system_prompt: str
-    language: str                            # ISO 639-1, e.g. "ko"
-    voice: str                               # Kokoro voice identifier
+    language: str                            # ISO 639-1, e.g. "ko" — used by ASR/LLM context
+    voice: str                               # XTTS speaker name or speaker WAV path
+    tts_lang_code: str = "en"                # XTTS ISO language code, e.g. "en" or "ko"
     overlapping: bool = False                # Phase 2 concurrent pipeline
     history_max_turns: int = 20
     thinking_enabled: bool = False           # Qwen3 thinking; off by default (adds ~300–2000ms)

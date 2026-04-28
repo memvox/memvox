@@ -47,7 +47,7 @@ class TokenChunk:
 
 @dataclass
 class AudioChunk:
-    pcm_bytes: bytes       # 24 kHz float32 little-endian
+    pcm_bytes: bytes       # 24 kHz float32 little-endian for XTTS-v2
     sample_rate: int
     is_final: bool
     sentence_text: str

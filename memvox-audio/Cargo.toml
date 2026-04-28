@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 # Audio I/O — mic capture and speaker playback on real-time OS threads
 cpal = "0.15"
-# Resampling — Kokoro 24 kHz → device native rate (typically 48 kHz)
+# Resampling — TTS 24 kHz → device native rate (typically 48 kHz)
 rubato = "0.16"
 # Silero VAD ONNX inference — uncomment when swapping out energy VAD in ingress.rs
 # ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }

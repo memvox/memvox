@@ -87,17 +87,27 @@ class ASREngine:
             beam_size=5,
             vad_filter=False,       # VAD already handled by AudioIngress
         )
-        # faster-whisper returns a generator; consume it
-        text = " ".join(s.text for s in segs).strip()
+        # faster-whisper returns a generator; consume it once into a list so we
+        # can both join text and derive no_speech_prob from per-segment values
+        # (which is where this attribute lives in current faster-whisper).
+        seg_list = list(segs)
+        text = " ".join(s.text for s in seg_list).strip()
 
-        if info.no_speech_prob > _NO_SPEECH_THRESHOLD or _is_filler(text):
+        # Use the max no_speech_prob across segments — most conservative drop
+        # decision.  Empty result → treat as full no-speech.
+        no_speech_prob = (
+            max((getattr(s, "no_speech_prob", 0.0) for s in seg_list), default=1.0)
+            if seg_list else 1.0
+        )
+
+        if no_speech_prob > _NO_SPEECH_THRESHOLD or _is_filler(text):
             return None
 
         return Transcript(
             text=text,
             language=info.language,
-            confidence=1.0 - info.no_speech_prob,
-            no_speech_prob=info.no_speech_prob,
+            confidence=1.0 - no_speech_prob,
+            no_speech_prob=no_speech_prob,
             latency_ms=0.0,         # filled in by _process
             source_segment=segment,
         )

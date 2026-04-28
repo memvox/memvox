@@ -23,9 +23,9 @@ def _make_segment(duration_ms: float = 2000.0) -> SpeechSegment:
 def _mock_model(text: str = "안녕하세요", no_speech_prob: float = 0.05, language: str = "ko"):
     seg = MagicMock()
     seg.text = text
+    seg.no_speech_prob = no_speech_prob   # newer faster-whisper puts this on the segment
     info = MagicMock()
     info.language = language
-    info.no_speech_prob = no_speech_prob
     model = MagicMock()
     model.transcribe.return_value = ([seg], info)
     return model
