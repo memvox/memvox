@@ -32,23 +32,21 @@ use crate::ingress::AudioIngress;
 use crate::ipc::{InboundMsg, OutboundMsg};
 
 const DEFAULT_OUT_SOCK: &str = "/tmp/memvox-audio-out.sock";
-const DEFAULT_IN_SOCK:  &str = "/tmp/memvox-audio-in.sock";
+const DEFAULT_IN_SOCK: &str = "/tmp/memvox-audio-in.sock";
 
 #[derive(Clone, Default)]
 struct Args {
     out_sock: String,
-    in_sock:  String,
-    input_device:  Option<String>,
+    in_sock: String,
+    input_device: Option<String>,
     output_device: Option<String>,
-    list_devices:  bool,
+    list_devices: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "memvox_audio=info".into()),
-        )
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "memvox_audio=info".into()))
         .init();
 
     let args = parse_args();
@@ -62,28 +60,40 @@ async fn main() -> Result<()> {
     info!("memvox-audio starting");
     info!("  outbound socket: {}", args.out_sock);
     info!("  inbound socket : {}", args.in_sock);
-    if let Some(d) = &args.input_device  { info!("  input device  : substring '{}'", d); }
-    if let Some(d) = &args.output_device { info!("  output device : substring '{}'", d); }
+    if let Some(d) = &args.input_device {
+        info!("  input device  : substring '{}'", d);
+    }
+    if let Some(d) = &args.output_device {
+        info!("  output device : substring '{}'", d);
+    }
 
     // Remove stale socket files from a previous run (bind() fails if the path exists).
     let _ = std::fs::remove_file(&args.out_sock);
     let _ = std::fs::remove_file(&args.in_sock);
 
-    let out_listener = UnixListener::bind(&args.out_sock)
-        .with_context(|| format!("bind {}", args.out_sock))?;
-    let in_listener = UnixListener::bind(&args.in_sock)
-        .with_context(|| format!("bind {}", args.in_sock))?;
+    let out_listener =
+        UnixListener::bind(&args.out_sock).with_context(|| format!("bind {}", args.out_sock))?;
+    let in_listener =
+        UnixListener::bind(&args.in_sock).with_context(|| format!("bind {}", args.in_sock))?;
 
     // Tokio mpsc channels couple the audio tasks to the socket-forwarding tasks.
     // 64 slots is plenty: ingress emits ≤ ~10 events/sec, egress receives bursts.
     let (out_tx, out_rx) = mpsc::channel::<OutboundMsg>(64);
-    let (in_tx,  in_rx)  = mpsc::channel::<InboundMsg>(64);
+    let (in_tx, in_rx) = mpsc::channel::<InboundMsg>(64);
 
     let barge_in = BargeInSignal::new();
 
     // Spawn each long-lived task. They run concurrently on the tokio runtime.
-    tokio::spawn(run_ingress(barge_in.clone(), out_tx, args.input_device.clone()));
-    tokio::spawn(run_egress(barge_in.clone(), in_rx, args.output_device.clone()));
+    tokio::spawn(run_ingress(
+        barge_in.clone(),
+        out_tx,
+        args.input_device.clone(),
+    ));
+    tokio::spawn(run_egress(
+        barge_in.clone(),
+        in_rx,
+        args.output_device.clone(),
+    ));
     tokio::spawn(outbound_task(out_listener, out_rx));
     tokio::spawn(inbound_task(in_listener, in_tx));
 
@@ -121,17 +131,14 @@ async fn run_egress(
 
 /// Accepts AudioIngressClient connections and forwards every OutboundMsg
 /// produced by the ingress task to the connected client.
-async fn outbound_task(
-    listener: UnixListener,
-    mut rx: mpsc::Receiver<OutboundMsg>,
-) -> Result<()> {
+async fn outbound_task(listener: UnixListener, mut rx: mpsc::Receiver<OutboundMsg>) -> Result<()> {
     loop {
         let (mut stream, _) = listener.accept().await?;
         info!("outbound: client connected");
         loop {
             let msg = match rx.recv().await {
                 Some(m) => m,
-                None => return Ok(()),  // ingress channel closed → shutdown
+                None => return Ok(()), // ingress channel closed → shutdown
             };
             if let Err(e) = ipc::write_msg(&mut stream, &msg).await {
                 warn!("outbound: write failed ({}); waiting for next client", e);
@@ -143,10 +150,7 @@ async fn outbound_task(
 
 /// Accepts AudioEgressClient connections and forwards every InboundMsg
 /// the client writes into the egress task's queue.
-async fn inbound_task(
-    listener: UnixListener,
-    tx: mpsc::Sender<InboundMsg>,
-) -> Result<()> {
+async fn inbound_task(listener: UnixListener, tx: mpsc::Sender<InboundMsg>) -> Result<()> {
     loop {
         let (mut stream, _) = listener.accept().await?;
         info!("inbound: client connected");
@@ -159,7 +163,7 @@ async fn inbound_task(
                 }
             };
             if tx.send(msg).await.is_err() {
-                return Ok(());  // egress task gone
+                return Ok(()); // egress task gone
             }
         }
     }
@@ -178,11 +182,11 @@ fn parse_args() -> Args {
     };
 
     Args {
-        out_sock:      get("--out-sock").unwrap_or_else(|| DEFAULT_OUT_SOCK.to_string()),
-        in_sock:       get("--in-sock").unwrap_or_else(|| DEFAULT_IN_SOCK.to_string()),
-        input_device:  get("--input-device"),
+        out_sock: get("--out-sock").unwrap_or_else(|| DEFAULT_OUT_SOCK.to_string()),
+        in_sock: get("--in-sock").unwrap_or_else(|| DEFAULT_IN_SOCK.to_string()),
+        input_device: get("--input-device"),
         output_device: get("--output-device"),
-        list_devices:  argv.iter().any(|a| a == "--list-devices"),
+        list_devices: argv.iter().any(|a| a == "--list-devices"),
     }
 }
 
@@ -197,9 +201,16 @@ fn list_devices() {
             println!("  inputs:");
             for d in devs {
                 let name = d.name().unwrap_or_else(|_| "<unnamed>".into());
-                let cfg = d.default_input_config()
-                    .map(|c| format!("{} Hz, {} ch, {:?}",
-                        c.sample_rate().0, c.channels(), c.sample_format()))
+                let cfg = d
+                    .default_input_config()
+                    .map(|c| {
+                        format!(
+                            "{} Hz, {} ch, {:?}",
+                            c.sample_rate().0,
+                            c.channels(),
+                            c.sample_format()
+                        )
+                    })
                     .unwrap_or_else(|_| "no default config".into());
                 println!("    • {}   ({})", name, cfg);
             }
@@ -212,9 +223,16 @@ fn list_devices() {
             println!("  outputs:");
             for d in devs {
                 let name = d.name().unwrap_or_else(|_| "<unnamed>".into());
-                let cfg = d.default_output_config()
-                    .map(|c| format!("{} Hz, {} ch, {:?}",
-                        c.sample_rate().0, c.channels(), c.sample_format()))
+                let cfg = d
+                    .default_output_config()
+                    .map(|c| {
+                        format!(
+                            "{} Hz, {} ch, {:?}",
+                            c.sample_rate().0,
+                            c.channels(),
+                            c.sample_format()
+                        )
+                    })
                     .unwrap_or_else(|_| "no default config".into());
                 println!("    • {}   ({})", name, cfg);
             }
