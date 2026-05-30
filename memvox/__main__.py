@@ -56,7 +56,12 @@ async def _run(args: argparse.Namespace) -> None:
     asr_in: asyncio.Queue  = asyncio.Queue()
     asr_out: asyncio.Queue = asyncio.Queue()
 
-    asr  = ASREngine(asr_in, asr_out, model_name=config.asr_model)
+    asr  = ASREngine(
+        asr_in, asr_out,
+        model_name=config.asr_model,
+        # language=None → auto-detect; allowed_languages filters hallucinations
+        allowed_languages=config.asr_allowed_languages,
+    )
     llm  = LLMEngine(base_url=config.llm_base_url, model=config.llm_model)
     tts  = TTSEngine(voice=config.voice, lang_code=config.tts_lang_code)
     wiki = WikiStore(wiki_dir=wiki_dir, db_path=db_path)

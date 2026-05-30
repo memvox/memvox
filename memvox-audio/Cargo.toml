@@ -12,9 +12,10 @@ path = "src/main.rs"
 cpal = "0.15"
 # Resampling — TTS 24 kHz → device native rate (typically 48 kHz)
 rubato = "0.16"
-# Silero VAD ONNX inference — uncomment when swapping out energy VAD in ingress.rs
-# ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
-# ndarray = "0.16"
+# Silero VAD ONNX inference. `download-binaries` fetches a prebuilt
+# libonnxruntime at build time — simplest for dev. For packaged builds,
+# switch to `load-dynamic` and ship/point at libonnxruntime.so explicitly.
+ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
 # Async runtime — drives IPC and coordination tasks (not audio threads)
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "io-util", "time", "macros", "signal"] }
 # IPC wire format

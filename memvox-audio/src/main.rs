@@ -19,6 +19,7 @@ mod barge_in;
 mod egress;
 mod ingress;
 mod ipc;
+mod vad;
 
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait};

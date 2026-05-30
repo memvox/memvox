@@ -56,6 +56,20 @@ class _ThinkingParser:
         return [(t, th) for t, th in result if t]
 
 
+def _append_no_think(messages: list[dict]) -> list[dict]:
+    """Append Qwen3's `/no_think` soft-switch to the last user message.
+
+    Qwen3 honors `/no_think` at the end of a user turn to disable thinking
+    for that response. Works on vLLM and Ollama identically.
+    """
+    out = [dict(m) for m in messages]
+    for i in range(len(out) - 1, -1, -1):
+        if out[i].get("role") == "user":
+            out[i]["content"] = f"{out[i]['content']}\n\n/no_think"
+            break
+    return out
+
+
 def _build_messages(request: GenerationRequest) -> list[dict]:
     """Merge history + wiki context into the OpenAI messages list.
 
@@ -109,11 +123,18 @@ class LLMEngine:
         ttft_recorded = False
         parser = _ThinkingParser()
 
-        # Always pass the flag explicitly. Qwen3 defaults to thinking ON when
-        # the field is absent — that produces only <think> tokens for short
-        # prompts, which our parser classifies as thinking and drops, leaving
-        # no content for TTS. Sending `false` opts out of thinking entirely.
+        # Two ways to control Qwen3 thinking, sent together so the same code
+        # works against vLLM and Ollama:
+        #   1. `chat_template_kwargs.enable_thinking` — vLLM honors this via
+        #      the Jinja chat template. Ollama ignores unknown extras.
+        #   2. `/no_think` inline marker on the last user message — Qwen3's
+        #      documented soft switch, works regardless of serving stack.
+        # Without an explicit opt-out, Qwen3 defaults to thinking ON; the
+        # think tokens fill `max_tokens` before any content appears and our
+        # parser drops them, leaving nothing for TTS.
         extra_body = {"chat_template_kwargs": {"enable_thinking": request.thinking_enabled}}
+        if not request.thinking_enabled:
+            messages = _append_no_think(messages)
 
         stream = await self._client.chat.completions.create(
             model=self._model,

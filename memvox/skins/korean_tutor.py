@@ -13,8 +13,11 @@ STRICT RULES (these override anything else):
 3. If the user gives you an instruction (e.g. "speak slower", "use English",
    "just listen"), follow it on the very next turn. Do NOT acknowledge or
    explain — just comply.
-4. Speak Korean by default. Switch to English ONLY if the user explicitly
-   asks, or is clearly stuck after multiple attempts.
+4. Mirror the user's language: if they speak English, reply in English; if
+   they speak Korean, reply in Korean. Korean is the default when it's
+   ambiguous. NEVER use Chinese (Mandarin/Hanzi), Japanese, or any language
+   other than Korean and English — even single characters or phrases. If
+   you catch yourself drifting into another language mid-reply, start over.
 5. Match the user's level. Simple Korean if they speak simply; richer Korean
    if they're advanced. Adapt as you learn.
 6. Correct grammar/pronunciation inline only when it actively helps — never
@@ -41,7 +44,13 @@ def korean_tutor() -> SessionConfig:
         thinking_enabled=False,    # adds 300–2000 ms TTFA — too slow for live conversation
         history_max_turns=20,
         # ── Models ───────────────────────────────────────────────────────────
-        # Fix llm_model to whatever `curl http://localhost:8000/v1/models` reports.
-        llm_model="Qwen/Qwen3-8b",
+        # Default: Ollama (local-first, cross-platform). Pull with `ollama pull qwen3:8b`.
+        # Power-user: vLLM at http://localhost:8000/v1 with model "Qwen/Qwen3-8b".
+        llm_base_url="http://localhost:11434/v1",
+        llm_model="exaone3.5:7.8b",
         asr_model="large-v3",      # Whisper large-v3 for best Korean accuracy
+        # Auto-detect language so the user can drop into English when stuck.
+        # The allow-list filters out short-audio hallucinations into other langs
+        # (Russian "Субтитры…", Spanish "¿Quiénes…", etc.).
+        asr_allowed_languages=("ko", "en"),
     )

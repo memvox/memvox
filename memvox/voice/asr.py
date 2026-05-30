@@ -29,12 +29,16 @@ class ASREngine:
         model_name: str = "large-v3",
         device: str = "cuda",
         compute_type: str = "float16",
+        language: str | None = None,
+        allowed_languages: tuple[str, ...] = (),
     ) -> None:
         self._input_q = input_q
         self._output_q = output_q
         self._model_name = model_name
         self._device = device
         self._compute_type = compute_type
+        self._language = language
+        self._allowed_languages = allowed_languages
         self._model: WhisperModel | None = None
 
     async def initialize(self) -> None:
@@ -83,9 +87,10 @@ class ASREngine:
 
         segs, info = self._model.transcribe(
             audio,
-            language=None,          # auto-detect
+            language=self._language,  # None = auto-detect; set per-skin to avoid
+                                      # multilingual hallucinations on short audio
             beam_size=5,
-            vad_filter=False,       # VAD already handled by AudioIngress
+            vad_filter=False,         # VAD already handled by AudioIngress
         )
         # faster-whisper returns a generator; consume it once into a list so we
         # can both join text and derive no_speech_prob from per-segment values
@@ -100,7 +105,14 @@ class ASREngine:
             if seg_list else 1.0
         )
 
-        if no_speech_prob > _NO_SPEECH_THRESHOLD or _is_filler(text):
+        if no_speech_prob > _NO_SPEECH_THRESHOLD:
+            print(f"[asr drop] no_speech_prob={no_speech_prob:.2f} > {_NO_SPEECH_THRESHOLD}  text={text!r}")
+            return None
+        if _is_filler(text):
+            print(f"[asr drop] filler/empty text={text!r}  no_speech_prob={no_speech_prob:.2f}")
+            return None
+        if self._allowed_languages and info.language not in self._allowed_languages:
+            print(f"[asr drop] detected lang={info.language!r} not in {self._allowed_languages}  text={text!r}")
             return None
 
         return Transcript(

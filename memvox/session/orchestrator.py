@@ -123,10 +123,13 @@ class SessionOrchestrator:
         # SpeechSegment. We stop it when the first non-final AudioChunk leaves
         # egress (first audio that the user could hear).
         t_segment_received = time.monotonic()
+        print(f"[turn] SpeechSegment received: {segment.duration_ms:.0f}ms")
 
         transcript = await self._asr.transcribe(segment)
         if transcript is None:
+            print("[turn] ASR returned None — dropped (likely no-speech or low confidence)")
             return
+        print(f"[turn] ASR transcript: {transcript.text!r}")
 
         turn_id = uuid.uuid4().hex[:8]
 
@@ -134,6 +137,7 @@ class SessionOrchestrator:
         async with metrics.span(metrics.WIKI_QUERY, turn_id=turn_id):
             results = await self._wiki.search(transcript.text, top_k=5)
         snippets = [chunk for r in results for chunk in r.matched_chunks[:1]]
+        print(f"[turn] wiki: {len(snippets)} snippet(s)")
 
         # Build message list — system prompt + bounded history + new user turn
         messages = [
@@ -158,13 +162,17 @@ class SessionOrchestrator:
             async for chunk in self._llm.generate(request):
                 if not chunk.is_thinking and not chunk.is_final:
                     content_parts.append(chunk.text)
+            assistant_text_local = "".join(content_parts)
+            print(f"[turn] LLM reply: {assistant_text_local!r}")
             for part in content_parts:
                 yield part
 
         # TTS synthesis → egress
         first_audio_recorded = False
+        tts_chunks = 0
         async for audio_chunk in self._tts.synthesize(_sequential_tokens()):
             if not audio_chunk.is_final:
+                tts_chunks += 1
                 await self._egress.send(audio_chunk)
                 if not first_audio_recorded:
                     first_audio_recorded = True
@@ -173,6 +181,7 @@ class SessionOrchestrator:
                         latency_ms=(time.monotonic() - t_segment_received) * 1000,
                         turn_id=turn_id,
                     )
+        print(f"[turn] TTS produced {tts_chunks} chunks → egress")
 
         # Record turn in history
         assistant_text = "".join(content_parts)

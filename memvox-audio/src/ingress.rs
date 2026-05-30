@@ -5,9 +5,9 @@
 //! (SILENT → SPEECH → TRAILING → emit) decides when to emit a `SpeechStarted`
 //! signal at onset and a complete `SpeechSegment` after trailing silence.
 //!
-//! Currently uses energy (RMS) VAD as a stand-in for Silero. The `ort`
-//! dependency is in Cargo.toml so a `SileroVad` implementation can be dropped
-//! in later behind the same call site.
+//! Uses Silero VAD v4 (ONNX) for speech detection. An RMS-based fallback
+//! (`energy_vad`) is kept below for emergencies — flip the call site if
+//! Silero misbehaves while iterating.
 
 use std::time::Instant;
 
@@ -19,15 +19,16 @@ use tracing::{debug, info, warn};
 
 use crate::barge_in::BargeInSignal;
 use crate::ipc::{OutboundMsg, SpeechSegment, SpeechStarted};
+use crate::vad::{silero_model_path, SileroVad, SPEECH_THRESHOLD};
 
 // ── VAD / framing constants ───────────────────────────────────────────────────
 
-const SAMPLE_RATE: u32       = 16_000;
-const FRAME_SAMPLES: usize   = 1_536;   // 96 ms @ 16 kHz — Silero's native window
-const ONSET_FRAMES: usize    = 2;       // ~192 ms of speech to confirm utterance start
-const TRAILING_FRAMES: usize = 5;       // ~480 ms of silence to end utterance
-const MIN_SPEECH_FRAMES: usize = 3;     // discard bursts shorter than 288 ms (likely noise)
-const ENERGY_THRESHOLD: f32  = 0.01;    // RMS threshold; tune per environment
+const SAMPLE_RATE: u32 = 16_000;
+const FRAME_SAMPLES: usize = 1_536; // 96 ms @ 16 kHz — Silero's native window
+const ONSET_FRAMES: usize = 2; // ~192 ms of speech to confirm utterance start
+const TRAILING_FRAMES: usize = 5; // ~480 ms of silence to end utterance
+const MIN_SPEECH_FRAMES: usize = 3; // discard bursts shorter than 288 ms (likely noise)
+const ENERGY_THRESHOLD: f32 = 0.01; // RMS threshold for fallback energy_vad; tune per environment
 
 // ── State machine ─────────────────────────────────────────────────────────────
 
@@ -60,6 +61,12 @@ impl AudioIngress {
         // tep the issue cleanly.
         let mut sample_rx = open_input_stream(device_match.as_deref())?;
 
+        // Silero VAD model — load once, reused for every frame. State is
+        // carried internally across calls; reset at session boundaries.
+        let model_path = silero_model_path();
+        info!("ingress: loading Silero VAD from {}", model_path.display());
+        let mut vad = SileroVad::new(&model_path).context("init Silero VAD")?;
+
         // ── State machine state ─────────────────────────────────────────────
         let mut frame_buf: Vec<f32> = Vec::with_capacity(FRAME_SAMPLES);
         let mut state = VadState::Silent;
@@ -79,7 +86,14 @@ impl AudioIngress {
 
                 let frame: Vec<f32> = std::mem::take(&mut frame_buf);
                 frame_buf.reserve(FRAME_SAMPLES);
-                let is_speech = energy_vad(&frame);
+                let prob = match vad.score(&frame) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        warn!("ingress: VAD inference failed ({}); falling back to energy", e);
+                        if energy_vad(&frame) { 1.0 } else { 0.0 }
+                    }
+                };
+                let is_speech = prob > SPEECH_THRESHOLD;
                 let now_ms = session_start.elapsed().as_millis() as u64;
 
                 match state {
@@ -90,7 +104,7 @@ impl AudioIngress {
                             if onset_count >= ONSET_FRAMES {
                                 state = VadState::Speech;
                                 onset_ts_ms = now_ms;
-                                self.barge_in.fire();   // tell egress to stop playback
+                                self.barge_in.fire(); // tell egress to stop playback
                                 let msg = OutboundMsg::SpeechStarted(SpeechStarted {
                                     timestamp_ms: onset_ts_ms,
                                 });
@@ -160,7 +174,11 @@ fn open_input_stream(device_match: Option<&str>) -> Result<mpsc::UnboundedReceiv
     let device = match device_match {
         Some(needle) => host
             .input_devices()?
-            .find(|d| d.name().map(|n| n.to_lowercase().contains(&needle.to_lowercase())).unwrap_or(false))
+            .find(|d| {
+                d.name()
+                    .map(|n| n.to_lowercase().contains(&needle.to_lowercase()))
+                    .unwrap_or(false)
+            })
             .with_context(|| format!("no input device whose name contains '{}'", needle))?,
         None => host
             .default_input_device()
