@@ -30,7 +30,7 @@ AUDIO_BIN="$ROOT/target/release/memvox-audio"
 OUT_SOCK="/tmp/memvox-audio-out.sock"
 IN_SOCK="/tmp/memvox-audio-in.sock"
 OLLAMA_URL="http://localhost:11434"
-DC="docker compose"
+DC=""   # resolved by detect_compose(): "docker compose" (v2) or "docker-compose" (v1)
 
 # Defaults (override via env or .env)
 SKIN="${MEMVOX_SKIN:-korean_tutor}"
@@ -49,6 +49,16 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 is_running() { local pf="$RUN_DIR/$1.pid"; [[ -f "$pf" ]] && kill -0 "$(cat "$pf")" 2>/dev/null; }
 ollama_up()  { curl -fsS "$OLLAMA_URL/api/tags" >/dev/null 2>&1; }
+
+# Resolve the Compose command. Prefer the v2 plugin ("docker compose"); fall
+# back to the standalone "docker-compose" binary (common in Homebrew installs
+# that lack the CLI plugin — using "docker compose" there errors with
+# "unknown shorthand flag: -f"). Sets DC, or leaves it empty if neither exists.
+detect_compose() {
+  if docker compose version >/dev/null 2>&1; then DC="docker compose";
+  elif have docker-compose; then DC="docker-compose";
+  else DC=""; fi
+}
 
 # ── Python environment ───────────────────────────────────────────────────────
 ensure_python() {
@@ -93,6 +103,10 @@ ensure_ollama() {
   else
     have docker || die "Ollama isn't running and docker isn't installed.
   Install Docker, or start Ollama natively (https://ollama.com)."
+    detect_compose
+    [[ -n "$DC" ]] || die "Docker is installed but Docker Compose isn't.
+  Install Compose v2 (Docker Desktop) or the 'docker-compose' binary,
+  or just run Ollama natively (https://ollama.com) and re-run ./run.sh up."
     local files=(-f "$ROOT/docker-compose.yml")
     if have nvidia-smi; then
       files+=(-f "$ROOT/docker-compose.gpu.yml")
@@ -169,8 +183,9 @@ cmd_down() {
     rm -f "$RUN_DIR/$name.pid"
   done
   if [[ -f "$RUN_DIR/docker.started" ]]; then
+    detect_compose
     log "stopping Ollama container…"
-    ( cd "$ROOT" && $DC down ) || true
+    [[ -n "$DC" ]] && ( cd "$ROOT" && $DC down ) || true
     rm -f "$RUN_DIR/docker.started"
   fi
   log "✅ stopped."

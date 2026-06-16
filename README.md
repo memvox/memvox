@@ -8,14 +8,32 @@ full speak-listen loop locally: **mic → VAD → Whisper ASR → LLM → TTS �
 ## Quick start
 
 You need **Python ≥ 3.11** and either a running **Ollama** or **Docker** (the
-launcher uses Docker to run Ollama if you don't already have it). For the Rust
-audio binary you also need **Rust/cargo** — if it's missing, the launcher falls
-back to a pure-Python audio shim automatically.
+launcher uses Docker to run Ollama if you don't already have it; both the
+`docker compose` v2 plugin and the standalone `docker-compose` v1 binary work).
+For the Rust audio binary you also need **Rust/cargo** — if it's missing, the
+launcher falls back to a pure-Python audio shim automatically.
 
 ```bash
 git clone <repo> && cd memvox
 ./run.sh up
 ```
+
+### macOS / Apple Silicon: use native Ollama, not Docker
+
+Docker on macOS runs Linux containers inside a VM with **no GPU passthrough**, so
+a containerized Ollama is **CPU-only** and throws away your Apple Silicon (Metal)
+acceleration — bad for voice latency. Install Ollama natively instead:
+
+```bash
+brew install ollama
+ollama serve            # or: brew services start ollama
+./run.sh up
+```
+
+`run.sh` probes `:11434` first and **skips Docker entirely** when a native Ollama
+is already serving, so you get Metal acceleration and avoid Compose setup
+altogether. (Docker-run Ollama is meant for Linux hosts, ideally with an NVIDIA
+GPU — see the GPU overlay below.)
 
 That single command will:
 
