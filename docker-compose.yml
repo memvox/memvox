@@ -1,0 +1,56 @@
+# memvox inference services.
+#
+# Only the dependency-heavy inference layer is containerized. The Python
+# orchestrator and the Rust audio binary stay on the HOST — they need direct
+# microphone/speaker access and Unix-socket IPC, so containerizing them fights
+# the hardware for no benefit.
+#
+#   ┌─ host ─────────────────────────────┐   ┌─ container ─────────┐
+#   │ memvox-audio (cpal)  ↔  orchestr.  │──▶│ ollama  :11434/v1   │
+#   └────────────────────────────────────┘   └─────────────────────┘
+#
+# Plain `docker compose up` runs Ollama CPU-only — works on any machine and
+# keeps the "anyone can run it" promise. For NVIDIA GPU acceleration, layer the
+# override (needs the NVIDIA Container Toolkit / `nvidia-ctk` on the host):
+#
+#     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Pull the model the active skin expects (one-time; persisted in the volume):
+#
+#     docker compose run --rm model-init
+#   or
+#     docker compose exec ollama ollama pull exaone3.5:7.8b
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: memvox-ollama
+    ports:
+      - "11434:11434"        # orchestrator connects to http://localhost:11434/v1
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # One-shot helper: pull $OLLAMA_MODEL into the shared volume, then exit.
+  # Opt-in via the "init" profile so it never runs on a normal `up`.
+  #   docker compose run --rm model-init
+  model-init:
+    image: ollama/ollama:latest
+    profiles: ["init"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-exaone3.5:7.8b}"
+    entrypoint: ["/bin/sh", "-c", "ollama pull \"$OLLAMA_MODEL\""]
+    restart: "no"
+
+volumes:
+  ollama-models:

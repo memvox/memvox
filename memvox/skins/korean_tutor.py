@@ -37,9 +37,15 @@ def korean_tutor() -> SessionConfig:
         system_prompt=_SYSTEM_PROMPT,
         language="ko",
         # ── TTS ──────────────────────────────────────────────────────────────
-        # Coqui XTTS-v2 supports Korean and English with a 24 kHz output rate.
+        # Default: local Coqui XTTS-v2 (offline, no key). KO + EN at 24 kHz.
+        tts_backend="xtts",
         voice="Ana Florence",
         tts_lang_code="ko",
+        # Premium voice: Cartesia Sonic (bring-your-own-key). To switch, set
+        #   tts_backend="cartesia"  and export CARTESIA_API_KEY, then pick a
+        # voice UUID from https://play.cartesia.ai/ :
+        #   cartesia_voice_id="<your-voice-uuid>",
+        #   cartesia_model="sonic-2",
         # ── Latency knobs ────────────────────────────────────────────────────
         thinking_enabled=False,    # adds 300–2000 ms TTFA — too slow for live conversation
         history_max_turns=20,

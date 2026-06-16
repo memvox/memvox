@@ -34,5 +34,8 @@ htmlcov/
 *.swp
 *~
 
+# Secrets / local config (Cartesia key, model overrides) — keep .env.example
+.env
+
 # OS
 .DS_Store

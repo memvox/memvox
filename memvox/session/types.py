@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass
@@ -7,6 +8,12 @@ class SessionConfig:
     language: str                            # ISO 639-1, e.g. "ko" — used by ASR/LLM context
     voice: str                               # XTTS speaker name or speaker WAV path
     tts_lang_code: str = "en"                # XTTS ISO language code, e.g. "en" or "ko"
+    # ── TTS backend selection ────────────────────────────────────────────────
+    # "xtts"     → local Coqui XTTS-v2 (offline, no key)
+    # "cartesia" → Cartesia Sonic (BYOK; set CARTESIA_API_KEY + cartesia_voice_id)
+    tts_backend: Literal["xtts", "cartesia"] = "xtts"
+    cartesia_voice_id: str = ""              # Cartesia voice UUID (required for cartesia)
+    cartesia_model: str = "sonic-2"          # Sonic model id, e.g. "sonic-2"
     overlapping: bool = False                # Phase 2 concurrent pipeline
     history_max_turns: int = 20
     thinking_enabled: bool = False           # Qwen3 thinking; off by default (adds ~300–2000ms)

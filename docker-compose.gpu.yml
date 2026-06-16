@@ -1,0 +1,27 @@
+# GPU override for docker-compose.yml — NVIDIA only.
+#
+# Prerequisite (host): the NVIDIA Container Toolkit must be installed so the
+# container can see the host GPU. The kernel driver stays on the host; the
+# container ships its own user-space CUDA, so you do NOT need a matching CUDA
+# toolkit installed locally (this is exactly what sidesteps the local
+# nvcc/Blackwell pain). Install + verify:
+#
+#     # Ubuntu/Debian
+#     sudo apt-get install -y nvidia-container-toolkit
+#     sudo nvidia-ctk runtime configure --runtime=docker
+#     sudo systemctl restart docker
+#     docker run --rm --gpus all ollama/ollama nvidia-smi   # should list the GPU
+#
+# Then run with both files:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

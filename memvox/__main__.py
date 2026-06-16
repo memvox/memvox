@@ -25,7 +25,7 @@ from memvox.voice.asr import ASREngine
 from memvox.voice.egress import AudioEgressClient
 from memvox.voice.ingress import AudioIngressClient
 from memvox.voice.llm import LLMEngine
-from memvox.voice.tts import TTSEngine
+from memvox.voice.tts_factory import build_tts
 from memvox.wiki.store import WikiStore
 
 
@@ -63,7 +63,7 @@ async def _run(args: argparse.Namespace) -> None:
         allowed_languages=config.asr_allowed_languages,
     )
     llm  = LLMEngine(base_url=config.llm_base_url, model=config.llm_model)
-    tts  = TTSEngine(voice=config.voice, lang_code=config.tts_lang_code)
+    tts  = build_tts(config)
     wiki = WikiStore(wiki_dir=wiki_dir, db_path=db_path)
     await wiki.initialize()
 
@@ -76,6 +76,7 @@ async def _run(args: argparse.Namespace) -> None:
     print(f"[memvox] skin     : {args.skin}")
     print(f"[memvox] wiki dir : {wiki_dir}")
     print(f"[memvox] LLM      : {config.llm_model} @ {config.llm_base_url}")
+    print(f"[memvox] TTS      : {config.tts_backend}")
     print(f"[memvox] sockets  : out={args.out_sock}  in={args.in_sock}")
     print("[memvox] Starting session — speak into the mic. Ctrl-C to stop.")
 

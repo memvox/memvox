@@ -129,3 +129,31 @@ on `LD_LIBRARY_PATH`. The pip-installed copy lives at
 `.venv/lib/python*/site-packages/nvidia/cu13/lib/`. Adding it (and
 `nvidia-cublas-cu12 / nvidia-cudnn-cu12`'s lib dirs) to `LD_LIBRARY_PATH` in
 the venv's `activate` script is the cleanest fix.
+
+## Cartesia Sonic TTS backend (`memvox/voice/tts_cartesia.py`)
+
+Pluggable TTS landed: backends implement the `TTSBackend` Protocol in
+`tts_base.py` (`initialize()` + `synthesize(tokens)`), and `tts_factory.build_tts`
+picks one from `SessionConfig.tts_backend` ("xtts" | "cartesia"). Notes:
+
+1. **BYOK, optional dependency.** The `cartesia` package is in the `cartesia`
+   extra, not the base install: `pip install -e ".[cartesia]"`. The backend
+   only imports it inside `initialize()`, so the import cost / missing-key error
+   is paid only when a skin actually selects Cartesia.
+
+2. **Output format matches egress exactly.** We request
+   `output_format={"container":"raw","encoding":"pcm_f32le","sample_rate":24000}`.
+   That's already the `AudioChunk` convention (float32 LE PCM, rate carried
+   through to the Rust egress, which resamples), so the bytes pass straight
+   through — no conversion.
+
+3. **SDK surface drifts.** The websocket send shape (`voice={"mode":"id","id":..}`,
+   `model_id`, `language`) and the per-chunk output type have changed across
+   `cartesia-python` releases. `_extract_audio()` reads `.audio` *or* `["audio"]`
+   defensively so a minor bump doesn't kill playback. If audio goes silent after
+   an SDK upgrade, check the output item shape there first.
+
+4. **Voice is a UUID, not a name.** XTTS uses speaker names ("Ana Florence");
+   Cartesia needs a voice UUID from https://play.cartesia.ai/ set as
+   `cartesia_voice_id`. The per-sentence ko/en `resolve_language` helper is
+   shared with XTTS so English code-switching still routes correctly.

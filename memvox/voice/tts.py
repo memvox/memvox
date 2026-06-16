@@ -8,9 +8,14 @@ from typing import Any, AsyncGenerator, AsyncIterator
 import numpy as np
 
 from memvox.observability import metrics
+from memvox.voice.tts_base import (
+    SAMPLE_RATE as _SAMPLE_RATE,
+    new_accumulator as _new_accumulator,
+    resolve_language,
+    _PySentenceAccumulator,   # re-exported for tests that import it from here
+)
 from memvox.voice.types import AudioChunk
 
-_SAMPLE_RATE = 24_000
 _XTTS_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
 _XTTS_LANG_CODES = frozenset(
     {
@@ -33,58 +38,6 @@ _XTTS_LANG_CODES = frozenset(
         "zh-cn",
     }
 )
-
-# Use the compiled Rust extension when available; fall back to pure Python.
-try:
-    from memvox._rust import SentenceAccumulator as _RustSentenceAccumulator
-    _HAS_RUST = True
-except ImportError:
-    _HAS_RUST = False
-
-
-class _PySentenceAccumulator:
-    """Pure-Python fallback for memvox._rust.SentenceAccumulator.
-
-    Identical behaviour to the Rust implementation — used when the extension
-    has not been compiled yet (pre-Phase 4). Switch to the Rust version via:
-        maturin develop --manifest-path memvox-rs/Cargo.toml
-    """
-
-    _ENDINGS = frozenset(".!?。！？")
-
-    def __init__(self, flush_tokens: int = 30) -> None:
-        self._buf = ""
-        self._token_count = 0
-        self._flush_tokens = flush_tokens
-
-    def push(self, token: str) -> str | None:
-        self._buf += token
-        self._token_count += 1
-        stripped = self._buf.rstrip()
-        if (stripped and stripped[-1] in self._ENDINGS) or (
-            self._token_count >= self._flush_tokens
-        ):
-            return self._take()
-        return None
-
-    def drain(self) -> str | None:
-        s = self._buf.strip()
-        self._buf = ""
-        self._token_count = 0
-        return s or None
-
-    def _take(self) -> str:
-        s = self._buf.strip()
-        self._buf = ""
-        self._token_count = 0
-        return s
-
-
-def _new_accumulator(flush_tokens: int = 30):
-    if _HAS_RUST:
-        return _RustSentenceAccumulator(flush_tokens=flush_tokens)
-    return _PySentenceAccumulator(flush_tokens=flush_tokens)
-
 
 class TTSEngine:
     """Token stream → AudioChunk stream.
@@ -260,17 +213,7 @@ class TTSEngine:
         return {"speaker": self._voice}
 
     def _language_for_sentence(self, sentence: str) -> str:
-        if self._lang_code != "ko":
-            return self._lang_code
-
-        has_hangul = any("\uac00" <= char <= "\ud7a3" for char in sentence)
-        if has_hangul:
-            return "ko"
-
-        has_ascii_letter = any(
-            char.isascii() and char.isalpha() for char in sentence
-        )
-        return "en" if has_ascii_letter else "ko"
+        return resolve_language(sentence, self._lang_code)
 
     @staticmethod
     def _coerce_audio_result(result: Any) -> Iterable[Any]:

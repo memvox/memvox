@@ -20,7 +20,7 @@ from memvox.voice.asr import ASREngine
 from memvox.voice.egress import AudioEgressClient
 from memvox.voice.ingress import AudioIngressClient
 from memvox.voice.llm import LLMEngine
-from memvox.voice.tts import TTSEngine
+from memvox.voice.tts_base import TTSBackend
 from memvox.voice.types import AudioChunk, CancelPlayback, SpeechSegment, SpeechStarted
 from memvox.wiki.store import WikiStore
 from memvox.wiki.types import ChatMessage, CompileRequest, ConversationTurn
@@ -43,7 +43,7 @@ class SessionOrchestrator:
         config: SessionConfig,
         asr: ASREngine,
         llm: LLMEngine,
-        tts: TTSEngine,
+        tts: TTSBackend,
         wiki: WikiStore,
         ingress: AudioIngressClient,
         egress: AudioEgressClient,
