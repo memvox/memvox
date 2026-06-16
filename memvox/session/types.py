@@ -14,6 +14,9 @@ class SessionConfig:
     tts_backend: Literal["xtts", "cartesia"] = "xtts"
     cartesia_voice_id: str = ""              # Cartesia voice UUID (required for cartesia)
     cartesia_model: str = "sonic-2"          # Sonic model id, e.g. "sonic-2"
+    # Speed for Korean phrases embedded in an English sentence (help phrases),
+    # so learners can repeat them. Pure-Korean sentences stay at normal speed.
+    cartesia_korean_help_speed: Literal["slow", "normal", "fast"] = "slow"
     overlapping: bool = False                # Phase 2 concurrent pipeline
     history_max_turns: int = 20
     thinking_enabled: bool = False           # Qwen3 thinking; off by default (adds ~300–2000ms)

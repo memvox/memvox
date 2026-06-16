@@ -100,9 +100,100 @@ def resolve_language(sentence: str, lang_code: str) -> str:
     if lang_code != "ko":
         return lang_code
 
-    has_hangul = any("가" <= ch <= "힣" for ch in sentence)
+    has_hangul = any(_is_hangul(ch) for ch in sentence)
     if has_hangul:
         return "ko"
 
     has_ascii_letter = any(ch.isascii() and ch.isalpha() for ch in sentence)
     return "en" if has_ascii_letter else "ko"
+
+
+# ── Mixed-script segmentation ────────────────────────────────────────────────
+# A single sentence may interleave English and Korean ("The word for hello is
+# 안녕하세요"). Cartesia synthesizes one language + one speed per request, so we
+# split such sentences into runs of like script, render each in its own
+# language, and — for Korean phrases embedded in an English sentence (a "help
+# phrase") — at a slower speed so the learner can repeat it. Pure-Korean
+# sentences (immersion mode) stay at normal speed.
+
+SPEED_NORMAL = "normal"
+
+
+def _is_hangul(ch: str) -> bool:
+    # Syllables (가–힣) plus the compatibility Jamo block (ㄱ–ㅣ) so isolated
+    # consonants/vowels a tutor might say aloud still count as Korean.
+    return "가" <= ch <= "힣" or "ㄱ" <= ch <= "ㆎ"
+
+
+def _classify(ch: str) -> str | None:
+    """'ko' for Hangul, 'en' for ASCII letters, None for neutral (punctuation,
+    digits, whitespace) — neutral chars never force a language boundary."""
+    if _is_hangul(ch):
+        return "ko"
+    if ch.isascii() and ch.isalpha():
+        return "en"
+    return None
+
+
+def split_script_runs(sentence: str) -> list[str]:
+    """Split a sentence into consecutive same-script runs.
+
+    A boundary is introduced only when a Korean letter meets a Latin letter (or
+    vice-versa); punctuation, digits, and spaces attach to the current run so
+    runs stay prosodically whole. Leading neutral text merges into the run that
+    follows it.
+    """
+    runs: list[str] = []
+    buf = ""
+    script: str | None = None
+
+    for ch in sentence:
+        ch_script = _classify(ch)
+        if ch_script is not None and script is not None and ch_script != script:
+            runs.append(buf)
+            buf = ch
+            script = ch_script
+        else:
+            buf += ch
+            if script is None and ch_script is not None:
+                script = ch_script
+    if buf:
+        runs.append(buf)
+
+    # A purely-neutral leading run (no letters of its own) belongs with the next.
+    merged: list[str] = []
+    for run in runs:
+        if merged and not any(_classify(c) for c in merged[-1]):
+            merged[-1] += run
+        else:
+            merged.append(run)
+    return merged
+
+
+def segment_for_tts(
+    sentence: str, lang_code: str, korean_help_speed: str = "slow"
+) -> list[tuple[str, str, str]]:
+    """Break a sentence into (text, language, speed) synthesis units.
+
+    Korean runs inside a *mixed* (English + Korean) sentence are treated as help
+    phrases and get `korean_help_speed`; everything else is normal speed.
+    """
+    runs = [r for r in split_script_runs(sentence) if r.strip()]
+    if not runs:
+        return []
+
+    languages = [resolve_language(r, lang_code) for r in runs]
+
+    # A Korean run is a "help phrase" only when Korean is the *minority* script
+    # of the sentence — i.e. a short Korean phrase embedded in English. That
+    # keeps immersion sentences (Korean-primary, maybe one English loanword) at
+    # normal speed while slowing genuine teaching phrases.
+    ko_letters = sum(1 for ch in sentence if _is_hangul(ch))
+    en_letters = sum(1 for ch in sentence if ch.isascii() and ch.isalpha())
+    korean_is_help = "en" in languages and 0 < ko_letters < en_letters
+
+    units: list[tuple[str, str, str]] = []
+    for run, language in zip(runs, languages):
+        speed = korean_help_speed if (language == "ko" and korean_is_help) else SPEED_NORMAL
+        units.append((run, language, speed))
+    return units

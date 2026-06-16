@@ -24,6 +24,7 @@ def build_tts(config: SessionConfig) -> TTSBackend:
             voice_id=config.cartesia_voice_id,
             lang_code=config.tts_lang_code,
             model=config.cartesia_model,
+            korean_help_speed=config.cartesia_korean_help_speed,
         )
 
     raise ValueError(

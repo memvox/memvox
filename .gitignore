@@ -36,6 +36,10 @@ htmlcov/
 
 # Secrets / local config (Cartesia key, model overrides) — keep .env.example
 .env
+*key*.txt
+
+# Launcher runtime state (pids, logs)
+.run/
 
 # OS
 .DS_Store

@@ -26,6 +26,12 @@ from memvox.wiki.store import WikiStore
 from memvox.wiki.types import ChatMessage, CompileRequest, ConversationTurn
 
 
+# ASR language code → human name for the per-turn "reply in <lang>" directive.
+# Only languages we explicitly support are steered; anything else lets the
+# system prompt decide (avoids forcing a bad reply on a mis-detection).
+_LANG_NAMES = {"en": "English", "ko": "Korean"}
+
+
 class SessionOrchestrator:
     """Wire all components into a live turn-taking loop.
 
@@ -139,12 +145,25 @@ class SessionOrchestrator:
         snippets = [chunk for r in results for chunk in r.matched_chunks[:1]]
         print(f"[turn] wiki: {len(snippets)} snippet(s)")
 
-        # Build message list — system prompt + bounded history + new user turn
+        # Build message list — system prompt + bounded history + new user turn.
+        # Steer the reply language from ASR's detection instead of letting the
+        # model guess from bare text (a one-word "hello" otherwise falls to the
+        # prompt's "Korean is default when ambiguous" rule). The directive is
+        # transient — placed last for recency, and NOT stored in history.
         messages = [
             ChatMessage(role="system", content=self._config.system_prompt),
             *self._history,
-            ChatMessage(role="user", content=transcript.text),
         ]
+        lang_name = _LANG_NAMES.get(transcript.language)
+        if lang_name:
+            messages.append(
+                ChatMessage(
+                    role="system",
+                    content=f"(Detected input language: {lang_name}. "
+                            f"Apply your current-mode language rules.)",
+                )
+            )
+        messages.append(ChatMessage(role="user", content=transcript.text))
 
         from memvox.voice.types import GenerationRequest
         request = GenerationRequest(

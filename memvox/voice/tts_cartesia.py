@@ -23,7 +23,7 @@ from memvox.observability import metrics
 from memvox.voice.tts_base import (
     SAMPLE_RATE,
     new_accumulator,
-    resolve_language,
+    segment_for_tts,
 )
 from memvox.voice.types import AudioChunk
 
@@ -55,6 +55,7 @@ class CartesiaTTS:
         model: str = _DEFAULT_MODEL,
         api_key: str | None = None,
         flush_tokens: int = 30,
+        korean_help_speed: str = "slow",
         _client=None,           # inject a fake AsyncCartesia for tests
     ) -> None:
         if not voice_id:
@@ -67,6 +68,7 @@ class CartesiaTTS:
         self._model = model
         self._api_key = api_key or os.environ.get("CARTESIA_API_KEY")
         self._flush_tokens = flush_tokens
+        self._korean_help_speed = korean_help_speed
         self._client = _client
         self._ws = None
 
@@ -120,39 +122,46 @@ class CartesiaTTS:
     async def _synthesize_sentence(
         self, sentence: str
     ) -> AsyncGenerator[AudioChunk, None]:
+        # A sentence may interleave scripts ("the word is 안녕하세요"): split it
+        # into runs and synthesize each in its own language, slowing embedded
+        # Korean help phrases. Runs stream in order over the same websocket.
         t0 = time.monotonic()
         first = True
 
-        output = await self._ws.send(
-            model_id=self._model,
-            transcript=sentence,
-            voice={"mode": "id", "id": self._voice_id},
-            language=resolve_language(sentence, self._lang_code),
-            output_format={
-                "container": "raw",
-                "encoding": "pcm_f32le",
-                "sample_rate": SAMPLE_RATE,
-            },
-            stream=True,
-        )
-
-        async for item in output:
-            pcm = _extract_audio(item)
-            if not pcm:
-                continue
-
-            chunk_latency_ms = (time.monotonic() - t0) * 1000
-            if first:
-                metrics.event(metrics.TTS_FIRST_CHUNK, latency_ms=chunk_latency_ms)
-                first = False
-
-            yield AudioChunk(
-                pcm_bytes=pcm,
-                sample_rate=SAMPLE_RATE,
-                is_final=False,
-                sentence_text=sentence,
-                chunk_latency_ms=chunk_latency_ms,
+        for run_text, language, speed in segment_for_tts(
+            sentence, self._lang_code, self._korean_help_speed
+        ):
+            output = await self._ws.send(
+                model_id=self._model,
+                transcript=run_text,
+                voice={"mode": "id", "id": self._voice_id},
+                language=language,
+                speed=speed,
+                output_format={
+                    "container": "raw",
+                    "encoding": "pcm_f32le",
+                    "sample_rate": SAMPLE_RATE,
+                },
+                stream=True,
             )
+
+            async for item in output:
+                pcm = _extract_audio(item)
+                if not pcm:
+                    continue
+
+                chunk_latency_ms = (time.monotonic() - t0) * 1000
+                if first:
+                    metrics.event(metrics.TTS_FIRST_CHUNK, latency_ms=chunk_latency_ms)
+                    first = False
+
+                yield AudioChunk(
+                    pcm_bytes=pcm,
+                    sample_rate=SAMPLE_RATE,
+                    is_final=False,
+                    sentence_text=run_text,
+                    chunk_latency_ms=chunk_latency_ms,
+                )
 
     async def close(self) -> None:
         """Close the websocket and underlying client (best-effort)."""
