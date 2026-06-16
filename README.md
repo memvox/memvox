@@ -43,10 +43,14 @@ That single command will:
 3. build & start the **Rust audio** binary (or the shim),
 4. start the **orchestrator**.
 
-When it prints `✅ memvox is up`, just **speak into your mic**.
+When it prints `✅ memvox is up`, just **speak into your mic**. By default memvox
+uses your operating system's **default** input and output devices — so the
+zero-config path is to pick your mic/speaker in **System Settings → Sound**
+(macOS) and run; you don't need to know any device names.
 
 ```bash
 ./run.sh status     # what's running
+./run.sh devices    # list audio input/output device names (only needed to override)
 ./run.sh logs       # tail audio + orchestrator logs (Ctrl-C to stop tailing)
 ./run.sh down       # stop everything the launcher started
 ```
@@ -72,13 +76,42 @@ say *"let's do Korean only"* to switch to immersion mode mid-conversation.
 
 `run.sh` reads `.env` and these environment variables:
 
-| Variable        | Default            | Purpose                                  |
-|-----------------|--------------------|------------------------------------------|
-| `MEMVOX_SKIN`   | `korean_tutor`     | Skin to run (or pass as `./run.sh up <skin>`) |
-| `OLLAMA_MODEL`  | `exaone3.5:7.8b`   | Model the launcher ensures is pulled     |
-| `MEMVOX_AUDIO`  | _(auto)_           | Set to `shim` to force the Python audio shim |
+| Variable               | Default          | Purpose                                  |
+|------------------------|------------------|------------------------------------------|
+| `MEMVOX_SKIN`          | `korean_tutor`   | Skin to run (or pass as `./run.sh up <skin>`) |
+| `OLLAMA_MODEL`         | `exaone3.5:7.8b` | Model the launcher ensures is pulled     |
+| `MEMVOX_AUDIO`         | _(auto)_         | Set to `shim` to force the Python audio shim |
+| `MEMVOX_INPUT_DEVICE`  | _(system default)_ | Mic device (substring match; Rust binary only) |
+| `MEMVOX_OUTPUT_DEVICE` | _(system default)_ | Speaker device (substring match; Rust binary only) |
 
-> **Note:** `OLLAMA_MODEL` must match the model the chosen skin expects.
+> **Note:** `OLLAMA_MODEL` must match the model the chosen skin expects. The
+> launcher auto-installs Python deps and, if `cargo` is missing, installs Rust
+> via `rustup` to build the audio binary (falling back to the Python shim).
+
+### Bluetooth earbuds (AirPods, etc.)
+
+Avoid using Bluetooth earbuds as the **microphone**. When an app opens their mic,
+macOS switches them from the high-quality A2DP (output-only) profile to the
+HFP/hands-free profile, which forces *both* directions down to a ~16 kHz mono
+"telephone" codec — so your playback suddenly sounds muffled and glitchy, on top
+of Bluetooth's added latency.
+
+Use a **non-Bluetooth mic for input** (the built-in mic on laptops/iMacs, or a
+USB/wired mic — note the Mac mini and Mac Studio have *no* built-in mic) and keep
+the earbuds for output, which stays on the high-quality A2DP profile:
+
+```bash
+MEMVOX_INPUT_DEVICE="USB" MEMVOX_OUTPUT_DEVICE="AirPods" ./run.sh up
+```
+
+If your only mic is the earbuds, both directions are stuck in the degraded HFP
+profile — there's no way around it while their mic is in use; sending output to a
+wired speaker instead at least keeps playback off the Bluetooth path. A **USB or
+USB-C headset** (e.g. a Jabra) sidesteps all of this — it's a USB-audio device,
+not Bluetooth, so mic and speaker both run at full quality with no profile
+switching. Ideal for a Mac mini.
+
+(List device names with `./run.sh devices`.)
 
 ## Manual / advanced
 
