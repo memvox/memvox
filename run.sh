@@ -214,7 +214,9 @@ start_audio() {
 start_orchestrator() {
   if is_running orchestrator; then log "orchestrator already running."; return; fi
   log "starting orchestrator (skin: $SKIN)…"
-  nohup "$PY" -m memvox --skin "$SKIN" >"$RUN_DIR/orchestrator.log" 2>&1 &
+  # -u (unbuffered) so per-turn lines and the end-of-session latency table
+  # stream into the log immediately instead of sitting in a block buffer.
+  PYTHONUNBUFFERED=1 nohup "$PY" -u -m memvox --skin "$SKIN" >"$RUN_DIR/orchestrator.log" 2>&1 &
   echo $! >"$RUN_DIR/orchestrator.pid"
   sleep 2
   is_running orchestrator || die "orchestrator exited early. See $RUN_DIR/orchestrator.log"
@@ -234,19 +236,36 @@ cmd_up() {
   log "   stop   : ./run.sh down"
 }
 
+# Echo the end-of-session latency table (printed by orch.stop()) from the log.
+print_latency_summary() {
+  local log="$RUN_DIR/orchestrator.log"
+  [[ -f "$log" ]] && grep -q "\[metrics\] Session summary:" "$log" || return 0
+  echo
+  sed -n '/\[metrics\] Session summary:/,$p' "$log"
+  echo
+}
+
 cmd_down() {
-  for name in orchestrator audio; do
-    if is_running "$name"; then
-      log "stopping $name…"; kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true
-    fi
-    rm -f "$RUN_DIR/$name.pid"
-  done
+  # Stop the orchestrator first and give it a moment to run stop() — that's
+  # what prints the latency summary — before tearing down audio/Ollama.
+  if is_running orchestrator; then
+    local pid; pid="$(cat "$RUN_DIR/orchestrator.pid")"
+    log "stopping orchestrator…"
+    kill "$pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  fi
+  rm -f "$RUN_DIR/orchestrator.pid"
+  if is_running audio; then
+    log "stopping audio…"; kill "$(cat "$RUN_DIR/audio.pid")" 2>/dev/null || true
+  fi
+  rm -f "$RUN_DIR/audio.pid"
   if [[ -f "$RUN_DIR/docker.started" ]]; then
     detect_compose
     log "stopping Ollama container…"
     [[ -n "$DC" ]] && ( cd "$ROOT" && $DC down ) || true
     rm -f "$RUN_DIR/docker.started"
   fi
+  print_latency_summary
   log "✅ stopped."
 }
 

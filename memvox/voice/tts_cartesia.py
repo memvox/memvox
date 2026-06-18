@@ -131,37 +131,45 @@ class CartesiaTTS:
         for run_text, language, speed in segment_for_tts(
             sentence, self._lang_code, self._korean_help_speed
         ):
-            output = await self._ws.send(
-                model_id=self._model,
-                transcript=run_text,
-                voice={"mode": "id", "id": self._voice_id},
-                language=language,
-                speed=speed,
-                output_format={
-                    "container": "raw",
-                    "encoding": "pcm_f32le",
-                    "sample_rate": SAMPLE_RATE,
-                },
-                stream=True,
-            )
-
-            async for item in output:
-                pcm = _extract_audio(item)
-                if not pcm:
-                    continue
-
-                chunk_latency_ms = (time.monotonic() - t0) * 1000
-                if first:
-                    metrics.event(metrics.TTS_FIRST_CHUNK, latency_ms=chunk_latency_ms)
-                    first = False
-
-                yield AudioChunk(
-                    pcm_bytes=pcm,
-                    sample_rate=SAMPLE_RATE,
-                    is_final=False,
-                    sentence_text=run_text,
-                    chunk_latency_ms=chunk_latency_ms,
+            try:
+                output = await self._ws.send(
+                    model_id=self._model,
+                    transcript=run_text,
+                    voice={"mode": "id", "id": self._voice_id},
+                    language=language,
+                    speed=speed,
+                    output_format={
+                        "container": "raw",
+                        "encoding": "pcm_f32le",
+                        "sample_rate": SAMPLE_RATE,
+                    },
+                    stream=True,
                 )
+
+                async for item in output:
+                    pcm = _extract_audio(item)
+                    if not pcm:
+                        continue
+
+                    chunk_latency_ms = (time.monotonic() - t0) * 1000
+                    if first:
+                        metrics.event(metrics.TTS_FIRST_CHUNK, latency_ms=chunk_latency_ms)
+                        first = False
+
+                    yield AudioChunk(
+                        pcm_bytes=pcm,
+                        sample_rate=SAMPLE_RATE,
+                        is_final=False,
+                        sentence_text=run_text,
+                        chunk_latency_ms=chunk_latency_ms,
+                    )
+            except asyncio.CancelledError:
+                raise  # barge-in / shutdown — propagate, never swallow
+            except Exception as e:
+                # One bad run (e.g. a Cartesia rejection) shouldn't end the
+                # whole conversation; log it and move on to the next run.
+                print(f"[tts cartesia] skipping run {run_text!r}: {e}")
+                continue
 
     async def close(self) -> None:
         """Close the websocket and underlying client (best-effort)."""

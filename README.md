@@ -4,11 +4,13 @@
 
 **A local-first, low-latency streaming voice agent with persistent wiki memory.**
 
-memvox is a spoken-conversation agent — built first as a Korean tutor — that runs
-the entire voice loop on your own machine by default: speech recognition, a local
-LLM, and speech synthesis, with optional bring-your-own-key cloud voices. What
-makes it interesting is the engineering underneath: a streaming, barge-in-capable
-pipeline that overlaps recognition, generation, and playback, and an LLM that
+memvox is a spoken-conversation agent that runs
+on your own machine by default: speech recognition, a local
+LLM, and speech synthesis, with optional bring-your-own-key Cartesia voice models.
+The idea for memvox is simple: combine the power of the [LLM Wiki]() idea popularized
+by Karpathy with a fast, conversational voice agent. The primary use case for the project
+is now as a language learning tutor. In progress or future work also includes a streaming,
+barge-in-capable pipeline that overlaps recognition, generation, and playback, and an LLM that
 maintains its own Markdown "wiki" of what you've discussed so memory persists
 across sessions.
 
@@ -50,11 +52,12 @@ or cloud.
 
 - **Audio I/O (Rust, `memvox-audio`)** — `cpal` mic capture and playback, VAD,
   `rubato` resampling, and the barge-in signal. Runs on a real-time thread.
-- **VAD (Rust)** — voice-activity detection in the audio process (energy VAD in
-  Phase 1; Silero ONNX in Phase 4) emits speech-start / speech-end events.
+- **VAD (Rust)** — voice-activity detection in the audio process (Silero ONNX)
+  emits speech-start / speech-end events.
 - **ASR (Python)** — Whisper `large-v3` via faster-whisper, GPU with a CPU
   fallback; Korean + English with a language allow-list to filter hallucinations.
-- **Retrieval (LanceDB)** — hybrid vector + BM25 search over a Markdown wiki,
+- **Retrieval (LanceDB)** — hybrid vector + BM25 search over a Markdown wiki of previous
+  conversation transcripts, learning notes, insights and progress evaluations, 
   queried every turn; Markdown is the source of truth, the index is rebuilt on demand.
 - **LLM (pluggable)** — any OpenAI-compatible endpoint; local-first via Ollama or
   vLLM, with streaming and mid-turn cancellation for barge-in.
@@ -93,22 +96,16 @@ sequentially; Phase 2 runs them concurrently with bounded back-pressure.
 
 ## Performance
 
-Honest baseline — **Phase 1, sequential mode, RTX 5090** (LLM: Qwen3-8B via vLLM;
-TTS: XTTS-v2). These are *measured*, not aspirational:
+Current baseline — **Phase 1, sequential mode, RTX 5090** (LLM: exaone3.5:7.8b via Ollama; 
+TTS: Cartesia Sonic). Wiki lookup latency is omitted because it's not implemented yet.
+These are *measured*, not aspirational from the last ~15 turns:
 
 | Stage | Avg | P95 | Notes |
 |---|---:|---:|---|
-| **`mouth_to_ear`** | **1241 ms** | **2072 ms** | end-of-utterance → first audio out |
-| `asr.transcribe` | 185 ms | 295 ms | Whisper large-v3 |
-| `wiki.query` | 18 ms | 105 ms | LanceDB hybrid (empty wiki) |
-| `llm.ttft` | 37 ms | 119 ms | time to first token, thinking disabled |
-| `tts.first_chunk` | 683 ms | 1163 ms | XTTS-v2 (Korean-capable, heavier) |
-
-**TTS first-chunk is the dominant cost.** The architecture target is <400 ms
-mouth-to-ear, which assumed a faster TTS (~150 ms first chunk) *and* Phase 2
-overlap. Getting there needs both: Phase 2 removes the LLM-completion wait from
-the critical path (targeting ~900 ms avg), and Phase 4 swaps in a faster
-Korean-capable TTS to close the rest. Numbers will be updated as each phase lands.
+| **`mouth_to_ear`** | **763.6 ms** | **1480.3 ms** | end-of-utterance → first audio out |
+| `asr.transcribe` | 195.2 ms | 380.3 ms | Whisper large-v3 |
+| `llm.ttft` | 78.8 ms | 161.9 ms | time to first token, thinking disabled |
+| `tts.first_chunk` | 151.6 ms | 217.3 ms | exaone3.5:7.8b |
 
 ## Roadmap
 
@@ -119,10 +116,10 @@ Korean-capable TTS to close the rest. Numbers will be updated as each phase land
 - **Phase 3 — Wiki write path**: a `WikiCompiler` that turns each session
   transcript into create/update operations on the Markdown wiki, fire-and-forget
   on session end, plus wiring retrieved snippets into LLM context.
-- **Phase 4 — Polish**: compiled Rust `SentenceAccumulator`, Silero VAD, a faster
+- **Phase 4 — Polish**: compiled Rust `SentenceAccumulator`, a faster
   TTS to hit the latency target, and a browser UI.
-- **Phase 5 — Cloud tier**: multi-tenant orchestration, wiki sync, and more skins
-  (Japanese, Spanish, debate coach).
+- **Phase 5 — Cloud tier**: possible multi-tenant orchestration, wiki sync, and more skins
+  (French, Russian, Mandarin, different styles, etc.).
 
 ## Quick start
 

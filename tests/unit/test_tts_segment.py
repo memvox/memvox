@@ -54,6 +54,16 @@ class TestSegmentForTTS:
     def test_whitespace_only_yields_nothing(self):
         assert segment_for_tts("   ", "ko") == []
 
+    def test_punctuation_only_yields_nothing(self):
+        # Cartesia rejects transcripts with no speakable characters.
+        assert segment_for_tts("...!?", "ko") == []
+        assert segment_for_tts("—", "ko") == []
+
+    def test_punctuation_only_run_is_dropped(self):
+        # The standalone "?!" between scripts must not become its own unit.
+        for text, lang, _ in segment_for_tts("Say 물 ?!", "ko"):
+            assert any(ch.isalnum() for ch in text)
+
     def test_non_korean_session_passes_lang_through(self):
         # Non-Korean session: language is the configured code, speed normal.
         assert segment_for_tts("Bonjour", "fr") == [("Bonjour", "fr", "normal")]

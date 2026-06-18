@@ -178,7 +178,10 @@ def segment_for_tts(
     Korean runs inside a *mixed* (English + Korean) sentence are treated as help
     phrases and get `korean_help_speed`; everything else is normal speed.
     """
-    runs = [r for r in split_script_runs(sentence) if r.strip()]
+    # Keep only runs with something speakable. A run that's pure punctuation,
+    # whitespace, or symbols ("...", "?!", "—", an emoji) has no alphanumeric
+    # character, and Cartesia rejects it with "No valid transcripts passed".
+    runs = [r for r in split_script_runs(sentence) if any(ch.isalnum() for ch in r)]
     if not runs:
         return []
 
