@@ -106,7 +106,7 @@ These are *measured*, not aspirational from the last ~15 turns:
 | **`mouth_to_ear`** | **763.6 ms** | **1480.3 ms** | end-of-utterance → first audio out |
 | `asr.transcribe` | 195.2 ms | 380.3 ms | Whisper large-v3 |
 | `llm.ttft` | 78.8 ms | 161.9 ms | time to first token, thinking disabled |
-| `tts.first_chunk` | 151.6 ms | 217.3 ms | exaone3.5:7.8b |
+| `tts.first_chunk` | 151.6 ms | 217.3 ms | Cartesia Sonic |
 
 ## Roadmap
 

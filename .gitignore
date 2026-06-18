@@ -41,5 +41,8 @@ htmlcov/
 # Launcher runtime state (pids, logs)
 .run/
 
+# Internal docs
+DEVPLAN.md
+
 # OS
 .DS_Store
