@@ -5,7 +5,8 @@
 **A local-first, low-latency streaming voice agent with persistent wiki memory.**
 
 memvox at its core is a conversational agent that provides a voice interface to your
-personal knowledge stores. The idea for memvox is simple: combine the power of the [LLM Wiki]()
+personal knowledge stores. The idea for memvox is simple: combine the power of the
+[LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
 idea popularized by Karpathy with a fast, conversational voice agent. The primary use
 case to show off the voice agent + LLM Wiki paradigm is a language learning tutor. It runs
 on your own machine by default: speech recognition, a local LLM, and speech synthesis,
