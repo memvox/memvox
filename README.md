@@ -4,15 +4,15 @@
 
 **A local-first, low-latency streaming voice agent with persistent wiki memory.**
 
-memvox is a spoken-conversation agent that runs
-on your own machine by default: speech recognition, a local
-LLM, and speech synthesis, with optional bring-your-own-key Cartesia voice models.
-The idea for memvox is simple: combine the power of the [LLM Wiki]() idea popularized
-by Karpathy with a fast, conversational voice agent. The primary use case for the project
-is now as a language learning tutor. In progress or future work also includes a streaming,
-barge-in-capable pipeline that overlaps recognition, generation, and playback, and an LLM that
-maintains its own Markdown "wiki" of what you've discussed so memory persists
-across sessions.
+memvox at its core is a conversational agent that provides a voice interface to your
+personal knowledge stores. The idea for memvox is simple: combine the power of the [LLM Wiki]()
+idea popularized by Karpathy with a fast, conversational voice agent. The primary use
+case to show off the voice agent + LLM Wiki paradigm is a language learning tutor. It runs
+on your own machine by default: speech recognition, a local LLM, and speech synthesis,
+with optional bring-your-own-key Cartesia voice models. In progress or future work also
+includes a streaming, barge-in-capable pipeline that overlaps recognition, generation,
+and playback, and an LLM that maintains its own Markdown "wiki" of what you've discussed
+so memory persists across sessions.
 
 ## Status
 
@@ -26,7 +26,7 @@ across sessions.
 | 5 | Cloud tier + more languages | 📋 planned |
 
 Phase 1 is validated end-to-end through both the Rust audio binary and the
-Python dev shim. See [`DEVPLAN.md`](./DEVPLAN.md) for the detailed, checkable plan.
+Python dev shim.
 
 ## Architecture
 
