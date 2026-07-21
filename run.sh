@@ -8,6 +8,7 @@
 #   ./run.sh devices       list audio input/output device names
 #   ./run.sh logs [name]   tail logs (name = audio | orchestrator | all)
 #   ./run.sh setup         (re)install Python deps and build the audio binary
+#   ./run.sh ui            start the web UI dev server (webui/, foreground)
 #
 # It starts three things in the background and writes their logs/PIDs to .run/:
 #   1. Ollama        (skipped if a native Ollama already answers on :11434;
@@ -301,6 +302,21 @@ PY
   die "Audio tooling not installed yet. Run ./run.sh up (or setup) first."
 }
 
+cmd_ui() {
+  # Web UI (webui/): live transcript + flashcards + alphabet practice.
+  # Runs the Vite dev server in the foreground — Ctrl-C to stop. The Live view
+  # connects to the orchestrator's UI bridge on ws://localhost:8765, so start
+  # a voice session (./run.sh up) in parallel to see the conversation.
+  have node || die "Node.js is required for the web UI. Install it from https://nodejs.org (>= 20)."
+  cd "$ROOT/webui"
+  if [[ ! -d node_modules ]]; then
+    log "installing web UI dependencies (npm install)…"
+    npm install
+  fi
+  log "starting web UI dev server (Ctrl-C to stop)…"
+  exec npm run dev
+}
+
 cmd_logs() {
   local which="${1:-all}" files=()
   case "$which" in
@@ -317,7 +333,8 @@ case "${1:-up}" in
   down)   cmd_down;;
   status)  cmd_status;;
   devices) cmd_devices;;
+  ui)      cmd_ui;;
   logs)    shift || true; cmd_logs "${1:-all}";;
   setup)   ensure_python --force; audio_cmd >/dev/null; log "✅ setup complete.";;
-  *) die "usage: ./run.sh [up [skin] | down | status | devices | logs [name] | setup]";;
+  *) die "usage: ./run.sh [up [skin] | down | status | devices | ui | logs [name] | setup]";;
 esac

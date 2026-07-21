@@ -155,6 +155,21 @@ zero-config path is to pick your mic/speaker in **System Settings → Sound**
 ./run.sh down       # stop everything the launcher started
 ```
 
+### Web UI (optional)
+
+A companion web app for Korean practice lives in [`webui/`](./webui/): a
+**live transcript** of the conversation as you speak with the agent, a
+**flashcard** vocabulary bank, and **Hangul alphabet** practice — each with
+reference pronunciation. Needs Node.js ≥ 20:
+
+```bash
+./run.sh ui         # dev server at http://localhost:5173 (Ctrl-C to stop)
+```
+
+The orchestrator broadcasts transcript events over a local WebSocket
+(`--ui-port`, default 8765); the Live view connects automatically whenever a
+session is running. See [`webui/README.md`](./webui/README.md).
+
 ### macOS / Apple Silicon: use native Ollama, not Docker
 
 Docker on macOS runs Linux containers inside a VM with **no GPU passthrough**, so

@@ -89,8 +89,15 @@ impl AudioIngress {
                 let prob = match vad.score(&frame) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!("ingress: VAD inference failed ({}); falling back to energy", e);
-                        if energy_vad(&frame) { 1.0 } else { 0.0 }
+                        warn!(
+                            "ingress: VAD inference failed ({}); falling back to energy",
+                            e
+                        );
+                        if energy_vad(&frame) {
+                            1.0
+                        } else {
+                            0.0
+                        }
                     }
                 };
                 let is_speech = prob > SPEECH_THRESHOLD;

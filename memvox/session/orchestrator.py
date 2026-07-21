@@ -53,6 +53,7 @@ class SessionOrchestrator:
         wiki: WikiStore,
         ingress: AudioIngressClient,
         egress: AudioEgressClient,
+        ui_bridge=None,
     ) -> None:
         self._config = config
         self._asr = asr
@@ -61,6 +62,7 @@ class SessionOrchestrator:
         self._wiki = wiki
         self._ingress = ingress
         self._egress = egress
+        self._ui = ui_bridge
 
         self._history: list[ChatMessage] = []
         self._turns: list[ConversationTurn] = []
@@ -79,6 +81,7 @@ class SessionOrchestrator:
         self._session_id = uuid.uuid4().hex
         self._stop_event.clear()
         metrics.event(metrics.SESSION_START, session_id=self._session_id)
+        self._emit_ui({"type": "hello", "session_id": self._session_id})
 
         self._task = asyncio.create_task(self._run())
         self._task.add_done_callback(_log_task_exception)
@@ -96,6 +99,7 @@ class SessionOrchestrator:
         await self._egress.close()
 
         metrics.event(metrics.SESSION_END, session_id=self._session_id)
+        self._emit_ui({"type": "session_end", "session_id": self._session_id})
 
         # Print latency summary if the active sink is the in-memory one.
         report = metrics.summary()
@@ -138,6 +142,12 @@ class SessionOrchestrator:
         print(f"[turn] ASR transcript: {transcript.text!r}")
 
         turn_id = uuid.uuid4().hex[:8]
+        self._emit_ui({
+            "type": "user_final",
+            "turn_id": turn_id,
+            "text": transcript.text,
+            "language": transcript.language,
+        })
 
         # Wiki retrieval (target: <50ms)
         async with metrics.span(metrics.WIKI_QUERY, turn_id=turn_id):
@@ -189,6 +199,7 @@ class SessionOrchestrator:
         # TTS synthesis → egress
         first_audio_recorded = False
         tts_chunks = 0
+        last_ui_sentence = ""
         async for audio_chunk in self._tts.synthesize(_sequential_tokens()):
             if not audio_chunk.is_final:
                 tts_chunks += 1
@@ -200,11 +211,32 @@ class SessionOrchestrator:
                         latency_ms=(time.monotonic() - t_segment_received) * 1000,
                         turn_id=turn_id,
                     )
+                # Mirror the agent's words to the web UI as each sentence (or
+                # script run) starts playing. Chunks repeat sentence_text, so
+                # only emit on change.
+                sentence = " ".join(audio_chunk.sentence_text.split())
+                if sentence and sentence != last_ui_sentence:
+                    last_ui_sentence = sentence
+                    self._emit_ui({
+                        "type": "assistant_sentence",
+                        "turn_id": turn_id,
+                        "text": sentence,
+                    })
         print(f"[turn] TTS produced {tts_chunks} chunks → egress")
 
         # Record turn in history
         assistant_text = "".join(content_parts)
+        self._emit_ui({
+            "type": "assistant_final",
+            "turn_id": turn_id,
+            "text": " ".join(assistant_text.split()),
+        })
         self._append_history(transcript.text, assistant_text, turn_id)
+
+    def _emit_ui(self, event: dict) -> None:
+        """Forward an event to the web UI bridge, if one is attached."""
+        if self._ui is not None:
+            self._ui.emit(event)
 
     # ── History management ────────────────────────────────────────────────────
 

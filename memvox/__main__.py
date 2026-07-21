@@ -19,6 +19,7 @@ import os
 import signal
 from pathlib import Path
 
+from memvox.observability.uibridge import UIBridge
 from memvox.session.orchestrator import SessionOrchestrator
 from memvox.session.types import SessionConfig
 from memvox.voice.asr import ASREngine
@@ -70,7 +71,15 @@ async def _run(args: argparse.Namespace) -> None:
     ingress = AudioIngressClient(args.out_sock)
     egress  = AudioEgressClient(args.in_sock)
 
-    orch = SessionOrchestrator(config, asr, llm, tts, wiki, ingress, egress)
+    # Web UI bridge (webui/) — broadcasts live transcript over WebSocket.
+    # Optional: a bind failure or missing dep disables it, never the session.
+    ui_bridge = None
+    if args.ui_port != 0:
+        ui_bridge = UIBridge(port=args.ui_port)
+        await ui_bridge.start()
+
+    orch = SessionOrchestrator(config, asr, llm, tts, wiki, ingress, egress,
+                               ui_bridge=ui_bridge)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
     print(f"[memvox] skin     : {args.skin}")
@@ -90,6 +99,8 @@ async def _run(args: argparse.Namespace) -> None:
     await stop_event.wait()
     print("\n[memvox] Stopping session…")
     await orch.stop()
+    if ui_bridge is not None:
+        await ui_bridge.stop()
     print("[memvox] Done.")
 
 
@@ -100,6 +111,7 @@ def main() -> None:
     parser.add_argument("--db-path",  default=DEFAULT_DB_PATH)
     parser.add_argument("--out-sock", default=DEFAULT_OUTBOUND_SOCK, help="audio binary's outbound socket (shim writes here)")
     parser.add_argument("--in-sock",  default=DEFAULT_INBOUND_SOCK,  help="audio binary's inbound socket (shim reads here)")
+    parser.add_argument("--ui-port",  type=int, default=8765, help="web UI bridge WebSocket port (0 to disable)")
     args = parser.parse_args()
 
     asyncio.run(_run(args))
